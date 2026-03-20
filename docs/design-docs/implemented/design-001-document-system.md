@@ -44,7 +44,76 @@ Located under `specs/`.
 
 ---
 
-## 2. File naming
+## 2. Document levels
+
+The repository's markdown files are divided into three levels:
+
+1. **Managed documents**
+2. **Repository documents outside management**
+3. **Supporting material**
+
+This classification is about how specmate treats a document, not whether the
+document is useful or important to humans or agents.
+
+### Managed documents
+
+Managed documents are part of the formal specmate document system.
+
+Properties:
+
+- specmate recognises their meaning
+- specmate enforces their placement and naming rules
+- some have frontmatter, status, and lifecycle transitions
+- they may be created, checked, or moved by specmate commands
+
+Managed documents are:
+
+- PRD
+- Design Doc
+- Design Patch
+- Exec Plan
+- Guideline
+- Task Spec
+- `specs/project.md`
+- `specs/org.md`
+
+### Repository documents outside management
+
+Some repository-level documents may exist at conventional paths, but are not
+part of the formal specmate document model.
+
+Properties:
+
+- specmate does not assign IDs for them
+- specmate does not track status or lifecycle for them
+- they do not participate in `move` or status transitions
+- they should be treated as `user-owned`
+
+Examples:
+
+- `AGENTS.md`
+- `ARCHITECTURE.md` when a project chooses to include it
+
+### Supporting material
+
+Supporting material is allowed in the repository, but does not belong to the
+formal specmate document model.
+
+Properties:
+
+- specmate does not assign IDs or statuses
+- specmate does not manage lifecycle or transitions
+- these files may be read and referenced by humans or agents
+- these files must not replace managed documents as the source of truth
+
+Examples:
+
+- files under `docs/references/`
+- files under `docs/generated/`
+
+---
+
+## 3. File naming
 
 ```
 prd-001-<slug>.md
@@ -85,7 +154,7 @@ The two-digit sequence number ensures uniqueness independent of slug content.
 
 ---
 
-## 3. Status lifecycles
+## 4. Status lifecycles
 
 Each document type has its own status vocabulary chosen to match its semantics.
 Statuses are stored in the YAML frontmatter `status` field.
@@ -160,7 +229,8 @@ Changes tracked via version control history. No status transitions needed.
 Always `active`. No status transitions.
 
 Guidelines describe cross-cutting concerns — security, reliability, quality
-standards, and similar principles that span multiple modules. They are
+standards, frontend conventions, product-sense heuristics, design principles,
+and similar rules that span multiple modules. They are
 continuously evolving active documents, not something that gets "implemented"
 or "deprecated". Changes are made in place and tracked via version control.
 
@@ -168,13 +238,18 @@ Unlike Design Docs, Guidelines have no `implemented` state because they are
 not tied to a specific codebase implementation. They define *how the system
 should behave* across all modules, not *what a specific module does*.
 
+Boundary rule:
+
+- if a document describes how a specific module is currently designed, it is a Design Doc
+- if a document describes principles or standards that apply across multiple modules or tasks, it is a Guideline
+
 Agents consult Guidelines when they are referenced in a Task Spec's
 `guidelines` field or when the AGENTS.md index indicates they are relevant
 to the task at hand.
 
 ---
 
-## 4. Design Doc change flows
+## 5. Design Doc change flows
 
 ### Flow A — patch: incremental change to an existing design
 
@@ -225,7 +300,7 @@ No replacement doc. Module deleted from codebase.
 
 ---
 
-## 5. Directory structure
+## 6. Directory structure
 
 **Frontmatter is the source of truth. Directory is its physical reflection.**
 
@@ -238,6 +313,7 @@ never update frontmatter without moving the file.
 ```
 repo/
 ├── AGENTS.md
+├── ARCHITECTURE.md             # optional, user-owned, not status-managed
 ├── specs/
 │   ├── project.md                   # always active
 │   ├── org.md                       # always active
@@ -248,6 +324,8 @@ repo/
     │   ├── security.md
     │   ├── reliability.md
     │   └── ...
+    ├── references/                  # supporting material, unmanaged
+    ├── generated/                   # derived material, unmanaged
     ├── prd/
     │   ├── draft/
     │   ├── approved/
@@ -262,6 +340,22 @@ repo/
         ├── active/
         └── archived/                # completed + abandoned
 ```
+
+`AGENTS.md` is a repository-root onboarding document for agents. It is not a
+managed document type.
+
+`ARCHITECTURE.md` may exist as a repository-level architecture overview. It is
+not a managed document type, does not receive IDs or statuses, and must not be
+silently overwritten by later commands.
+
+`docs/references/` stores reference material such as external framework notes,
+tooling summaries, protocol excerpts, or design-system guidance prepared for
+human or agent consumption.
+
+`docs/generated/` stores derived artifacts such as generated schema snapshots,
+API summaries, or other machine-produced repository documentation. These files
+are not treated as the source of truth unless a managed document explicitly
+says otherwise.
 
 **Status to directory mapping**
 
@@ -283,7 +377,7 @@ repo/
 
 ---
 
-## 6. Frontmatter reference
+## 7. Frontmatter reference
 
 ### PRD
 
