@@ -19,34 +19,12 @@ specmate/
 │   ├── main.rs              # CLI entry point, command routing
 │   ├── cmd/
 │   │   ├── mod.rs           # subcommand registration
-│   │   ├── init.rs          # specmate init
-│   │   ├── new.rs           # specmate new
-│   │   ├── check.rs         # specmate check
-│   │   ├── run.rs           # specmate run (ACP agent loop)
-│   │   ├── move_.rs         # specmate move (status transition)
-│   │   └── status.rs        # specmate status
+│   │   └── init.rs          # specmate init
 │   ├── config.rs            # .specmate/config.yaml read/write
-│   ├── doc/
-│   │   ├── mod.rs           # document model (DocType, Status, Ownership)
-│   │   ├── id.rs            # ID allocation (auto-increment per doc type)
-│   │   └── frontmatter.rs   # YAML frontmatter parse/write
-│   ├── template/
-│   │   ├── en/              # English templates (compiled in via include_str!)
-│   │   │   ├── AGENTS.md
-│   │   │   ├── specs-README.md
-│   │   │   ├── design-docs-README.md
-│   │   │   ├── project.md
-│   │   │   └── ...
-│   │   └── zh/              # Chinese templates (compiled in via include_str!)
-│   │       ├── AGENTS.md
-│   │       ├── specs-README.md
-│   │       └── ...
 │   └── error.rs             # error types
 ├── tests/
 │   └── cmd/
-│       ├── init_test.rs
-│       ├── new_test.rs
-│       └── ...
+│       └── init_test.rs
 ├── Cargo.toml
 └── specs/                   # specmate's own Task Specs (dogfooding)
     ├── project.md
@@ -61,6 +39,8 @@ Read these before working on any task:
 - `specs/project.md` — technical constraints and coding conventions
 - `docs/design-docs/implemented/` — all current design contracts; codebase must
   be consistent with every doc in this directory
+- `docs/design-docs/candidate/design-006-cli-surface-roadmap.md` — roadmap for
+  planned CLI commands that are not implemented yet
 - The active Task Spec — defines intent, boundaries, and completion criteria
 
 ## Guidelines — read when relevant
@@ -151,4 +131,3 @@ specs/archived/                 ← completed + cancelled
 7. All `completion_criteria` tests must pass before the task is considered done
 
 Do not modify any file under `specs/` during task execution.
-
