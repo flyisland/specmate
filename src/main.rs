@@ -3,8 +3,6 @@ use clap::Parser;
 
 mod cmd;
 mod config;
-mod doc;
-mod error;
 
 /// specmate — CLI companion for document-driven AI coding
 #[derive(Parser)]

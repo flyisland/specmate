@@ -1,19 +1,16 @@
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::Path;
 
 /// Supported content languages for generated documents.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Lang {
+    #[default]
     En,
     Zh,
-}
-
-impl Default for Lang {
-    fn default() -> Self {
-        Lang::En
-    }
 }
 
 impl std::fmt::Display for Lang {
@@ -42,39 +39,41 @@ impl Default for Config {
 impl Config {
     /// Load config from `.specmate/config.yaml` relative to `repo_root`.
     ///
-    /// Falls back to default config with a warning if the file is missing
-    /// or malformed. Never returns an error — config issues are non-fatal.
-    pub fn load(repo_root: &Path) -> Self {
+    /// Missing config returns the default without warning. Read or parse
+    /// failures emit a warning to `stderr` and also fall back to defaults.
+    pub fn load_with_warnings<W: Write>(repo_root: &Path, stderr: &mut W) -> Self {
         let path = repo_root.join(".specmate").join("config.yaml");
         match Self::try_load(&path) {
             Ok(config) => config,
+            Err(error) if error.is_missing() => Config::default(),
             Err(e) => {
-                eprintln!("Warning: could not read .specmate/config.yaml: {e}. Using defaults.");
+                let _ = writeln!(
+                    stderr,
+                    "[warn] {}\n       could not read config: {e}\n       -> Using default lang en",
+                    path.display()
+                );
                 Config::default()
             }
         }
     }
 
     fn try_load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let content =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let config: Config = serde_yaml::from_str(&content)
             .with_context(|| format!("parsing {}", path.display()))?;
         Ok(config)
     }
+}
 
-    /// Write config to `.specmate/config.yaml` relative to `repo_root`.
-    pub fn save(&self, repo_root: &Path) -> Result<()> {
-        let dir = repo_root.join(".specmate");
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join("config.yaml");
-        let content = serde_yaml::to_string(self)?;
-        std::fs::write(&path, content)?;
-        Ok(())
-    }
+trait ConfigLoadErrorExt {
+    fn is_missing(&self) -> bool;
+}
 
-    /// Return the path to `.specmate/config.yaml` relative to `repo_root`.
-    pub fn path(repo_root: &Path) -> PathBuf {
-        repo_root.join(".specmate").join("config.yaml")
+impl ConfigLoadErrorExt for anyhow::Error {
+    fn is_missing(&self) -> bool {
+        self.chain()
+            .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+            .any(|error| error.kind() == std::io::ErrorKind::NotFound)
     }
 }

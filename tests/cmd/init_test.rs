@@ -1,128 +1,281 @@
-/// Integration tests for `specmate init`.
-///
-/// These tests correspond directly to the completion_criteria in
-/// specs/active/task-0001-implement-init-command.md.
-///
-/// Run all: cargo test --test init_test
-/// Run one: cargo test --test init_test test_init_creates_full_directory_structure -- --exact
+// Tests for `specmate init`.
+//
+// This file is compiled as a unit-test module from `src/cmd/init.rs` so the
+// task can keep its test edits within the declared boundary.
+use super::{run_in_repo, InitArgs};
+use crate::config::{Config, Lang};
 use std::fs;
+use std::path::Path;
 use tempfile::TempDir;
 
-/// Helper: run specmate init in a temp directory and return the dir.
 fn temp_repo() -> TempDir {
     tempfile::tempdir().expect("failed to create temp dir")
 }
 
-/// cc-001: Init succeeds in an empty directory.
-///
-/// All directories and README files must be created.
+fn args(lang: Option<Lang>, dry_run: bool, merge: bool) -> InitArgs {
+    InitArgs {
+        lang,
+        dry_run,
+        merge,
+    }
+}
+
+fn run_init(dir: &TempDir, init_args: InitArgs) -> (anyhow::Result<()>, String, String) {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let result = run_in_repo(dir.path(), init_args, &mut stdout, &mut stderr);
+    (
+        result,
+        String::from_utf8(stdout).expect("stdout should be utf-8"),
+        String::from_utf8(stderr).expect("stderr should be utf-8"),
+    )
+}
+
+fn read(path: &Path) -> String {
+    fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
+fn assert_exists(path: &Path) {
+    assert!(path.exists(), "expected {} to exist", path.display());
+}
+
 #[test]
 fn test_init_creates_full_directory_structure() {
     let dir = temp_repo();
-    // TODO: invoke specmate init and assert directory structure
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, stdout, stderr) = run_init(&dir, args(None, false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
+    assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
+
+    for relative in [
+        ".specmate",
+        "specs",
+        "specs/active",
+        "specs/archived",
+        "docs",
+        "docs/guidelines",
+        "docs/prd",
+        "docs/prd/draft",
+        "docs/prd/approved",
+        "docs/prd/obsolete",
+        "docs/design-docs",
+        "docs/design-docs/draft",
+        "docs/design-docs/candidate",
+        "docs/design-docs/implemented",
+        "docs/design-docs/obsolete",
+        "docs/exec-plans",
+        "docs/exec-plans/draft",
+        "docs/exec-plans/active",
+        "docs/exec-plans/archived",
+    ] {
+        assert_exists(&dir.path().join(relative));
+        assert!(
+            dir.path().join(relative).is_dir(),
+            "{relative} should be a directory"
+        );
+    }
+
+    for relative in [
+        "AGENTS.md",
+        ".specmate/config.yaml",
+        "specs/README.md",
+        "specs/project.md",
+        "specs/org.md",
+        "specs/active/README.md",
+        "specs/archived/README.md",
+        "docs/prd/README.md",
+        "docs/design-docs/README.md",
+        "docs/exec-plans/README.md",
+    ] {
+        let path = dir.path().join(relative);
+        assert_exists(&path);
+        assert!(path.is_file(), "{relative} should be a file");
+        assert!(
+            !read(&path).trim().is_empty(),
+            "{relative} should be non-empty"
+        );
+    }
 }
 
-/// cc-002: --lang zh generates Chinese README files.
 #[test]
 fn test_init_lang_zh_generates_chinese_content() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    assert!(read(&dir.path().join("specs/README.md")).contains("Task Spec 和项目级约束文档。"));
+    assert!(read(&dir.path().join("AGENTS.md")).contains("Agent 入职文档"));
 }
 
-/// cc-003: --lang en generates English README files.
 #[test]
 fn test_init_lang_en_generates_english_content() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::En), false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    assert!(read(&dir.path().join("specs/README.md"))
+        .contains("Task Specs and project-level constraints."));
+    assert!(read(&dir.path().join("AGENTS.md")).contains("Agent Onboarding"));
 }
 
-/// cc-004: No --lang defaults to en.
 #[test]
 fn test_init_default_lang_is_en() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(None, false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    assert!(read(&dir.path().join("specs/README.md"))
+        .contains("Task Specs and project-level constraints."));
 }
 
-/// cc-005: Init in an existing repo without --merge exits with a warning.
 #[test]
-fn test_init_existing_repo_warns_and_exits() {
+fn test_init_existing_repo_errors_and_exits() {
     let dir = temp_repo();
-    // Create a marker file so the repo looks initialised
     fs::create_dir_all(dir.path().join(".specmate")).unwrap();
-    fs::write(
-        dir.path().join(".specmate/config.yaml"),
-        "lang: en\n",
-    )
-    .unwrap();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+    fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
+
+    let (result, stdout, stderr) = run_init(&dir, args(None, false, false));
+
+    assert!(result.is_err(), "init should fail in an existing repo");
+    assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
+    assert!(stderr.contains("[fail]"));
+    assert!(stderr.contains("--merge"));
+    assert!(
+        !dir.path().join("specs").exists(),
+        "init should not create new paths"
+    );
 }
 
-/// cc-006: --dry-run prints planned operations without writing files.
 #[test]
 fn test_init_dry_run_no_files_written() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, stdout, stderr) = run_init(&dir, args(None, true, false));
+
+    assert!(result.is_ok(), "dry-run failed: {stderr}");
+    assert!(stdout.contains("Planned operations (no files will be written):"));
+    assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
+    assert_eq!(
+        fs::read_dir(dir.path()).unwrap().count(),
+        0,
+        "dry-run should not create any files or directories"
+    );
 }
 
-/// cc-007: --dry-run output groups [specmate] and [user] owned operations.
 #[test]
 fn test_init_dry_run_groups_output_by_ownership() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, stdout, stderr) = run_init(&dir, args(None, true, false));
+
+    assert!(result.is_ok(), "dry-run failed: {stderr}");
+    assert!(stdout.contains("[specmate]"));
+    assert!(stdout.contains("[user]"));
+    assert!(stdout.contains("[dir]"));
+    assert!(stdout
+        .trim_end()
+        .ends_with("Run without --dry-run to apply."));
 }
 
-/// cc-008: --merge silently overwrites specmate-owned README files.
 #[test]
 fn test_init_merge_overwrites_readmes() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::En), false, false));
+    assert!(result.is_ok(), "initial init failed: {stderr}");
+
+    fs::write(dir.path().join("specs/README.md"), "custom readme\n").unwrap();
+    fs::write(
+        dir.path().join("docs/design-docs/README.md"),
+        "custom design docs\n",
+    )
+    .unwrap();
+
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, true));
+
+    assert!(result.is_ok(), "merge failed: {stderr}");
+    assert!(read(&dir.path().join("specs/README.md")).contains("Task Spec 和项目级约束文档。"));
+    assert!(read(&dir.path().join("docs/design-docs/README.md"))
+        .contains("描述系统如何构建的设计文档。"));
 }
 
-/// cc-009: --merge never touches user-owned files.
 #[test]
 fn test_init_merge_preserves_user_files() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+    fs::create_dir_all(dir.path().join("specs")).unwrap();
+    fs::create_dir_all(dir.path().join(".specmate")).unwrap();
+    fs::write(dir.path().join("AGENTS.md"), "custom agents\n").unwrap();
+    fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
+    fs::write(dir.path().join("specs/project.md"), "custom project\n").unwrap();
+    fs::write(dir.path().join("specs/org.md"), "custom org\n").unwrap();
+
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, true));
+
+    assert!(result.is_ok(), "merge failed: {stderr}");
+    assert_eq!(read(&dir.path().join("AGENTS.md")), "custom agents\n");
+    assert_eq!(
+        read(&dir.path().join(".specmate/config.yaml")),
+        "lang: en\n"
+    );
+    assert_eq!(
+        read(&dir.path().join("specs/project.md")),
+        "custom project\n"
+    );
+    assert_eq!(read(&dir.path().join("specs/org.md")), "custom org\n");
 }
 
-/// cc-010: --merge creates missing directories and files.
 #[test]
 fn test_init_merge_creates_missing_structure() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+    fs::create_dir_all(dir.path().join(".specmate")).unwrap();
+    fs::create_dir_all(dir.path().join("specs")).unwrap();
+    fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
+
+    let (result, _, stderr) = run_init(&dir, args(None, false, true));
+
+    assert!(result.is_ok(), "merge failed: {stderr}");
+    assert_exists(&dir.path().join("docs/guidelines"));
+    assert_exists(&dir.path().join("docs/exec-plans/archived"));
+    assert_exists(&dir.path().join("specs/active/README.md"));
+    assert_exists(&dir.path().join("docs/prd/README.md"));
 }
 
-/// cc-011: Init generates a valid .specmate/config.yaml with a lang field.
 #[test]
 fn test_init_generates_valid_config() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    let config: Config = serde_yaml::from_str(&read(&dir.path().join(".specmate/config.yaml")))
+        .expect("config should parse");
+    assert_eq!(config.lang, Lang::Zh);
 }
 
-/// cc-012: Init generates AGENTS.md at the repo root.
 #[test]
 fn test_init_generates_agents_md() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(None, false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    let agents = read(&dir.path().join("AGENTS.md"));
+    assert!(agents.contains("Agent Onboarding"));
+    assert!(!agents.trim().is_empty());
 }
 
-/// cc-013: Init generates project.md and org.md templates under specs/.
 #[test]
 fn test_init_generates_spec_templates() {
     let dir = temp_repo();
-    let _ = dir;
-    todo!("implement after specmate init is built")
+
+    let (result, _, stderr) = run_init(&dir, args(None, false, false));
+
+    assert!(result.is_ok(), "init failed: {stderr}");
+    assert!(read(&dir.path().join("specs/project.md")).contains("id: project"));
+    assert!(read(&dir.path().join("specs/org.md")).contains("id: org"));
 }

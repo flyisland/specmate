@@ -1,9 +1,10 @@
 ---
 id: task-0001
 title: "Implement specmate init command"
-status: draft
+status: archived
 guidelines:
   - docs/guidelines/specmate-principles.md
+  - docs/guidelines/cli-conventions.md
 boundaries:
   allowed:
     - "src/cmd/init.rs"
@@ -28,8 +29,8 @@ completion_criteria:
     scenario: "Init defaults to en when no --lang provided"
     test: "test_init_default_lang_is_en"
   - id: "cc-005"
-    scenario: "Init in existing repo without --merge exits with warning"
-    test: "test_init_existing_repo_warns_and_exits"
+    scenario: "Init in existing repo without --merge exits with an actionable error"
+    test: "test_init_existing_repo_errors_and_exits"
   - id: "cc-006"
     scenario: "Init --dry-run prints planned operations without writing files"
     test: "test_init_dry_run_no_files_written"
@@ -114,6 +115,7 @@ repo/
 │   └── archived/
 │       └── README.md
 └── docs/
+    ├── guidelines/
     ├── prd/
     │   ├── README.md
     │   ├── draft/
@@ -152,13 +154,14 @@ specmate init --dry-run --lang zh
 
 Planned operations (no files will be written):
 
-  [specmate] CREATE  AGENTS.md
-  [specmate] CREATE  .specmate/config.yaml
+  [user]     CREATE  AGENTS.md
+  [user]     CREATE  .specmate/config.yaml
   [specmate] CREATE  specs/README.md
   [specmate] CREATE  specs/active/README.md
   [specmate] CREATE  specs/archived/README.md
   [user]     CREATE  specs/project.md
   [user]     CREATE  specs/org.md
+  [dir]      CREATE  docs/guidelines/
   [specmate] CREATE  docs/prd/README.md
   ... (all files listed)
 
@@ -186,11 +189,11 @@ Run without --dry-run to apply.
 
 | Situation | Behavior |
 |---|---|
-| Existing repo, no `--merge` | Print warning explaining `--merge`, exit code 1 |
+| Existing repo, no `--merge` | Print an actionable `[fail]` message explaining `--merge`, exit code 1 |
 | `--merge` + `--dry-run` together | Valid combination, show merge dry-run output |
-| Unknown `--lang` value | Error with list of valid values, exit code 1 |
+| Unknown `--lang` value | Bad input handled by clap, exit code 2 |
 | File write permission denied | Error with path, exit code 1 |
-| `.specmate/config.yaml` malformed | Warning, fall back to default lang `en` |
+| `.specmate/config.yaml` malformed | Print a visible `[warn]` message, fall back to default lang `en` |
 
 ## Completion criteria detail
 
@@ -200,11 +203,12 @@ Given an empty directory, `specmate init` must create all directories and files
 listed in the directory structure above. Every directory must exist, every README
 must be non-empty.
 
-### cc-005: Init in existing repo warns and exits
+### cc-005: Init in existing repo fails and exits
 
 "Existing repo" is defined as: `.specmate/config.yaml` exists OR any of the
-standard directories (`specs/`, `docs/prd/`, `docs/design-docs/`, `docs/exec-plans/`)
-exist. Warning message must mention `--merge`.
+standard directories (`specs/`, `docs/guidelines/`, `docs/prd/`,
+`docs/design-docs/`, `docs/exec-plans/`) exist. The error message must mention
+`--merge` and be actionable.
 
 ### cc-006 + cc-007: --dry-run writes nothing, groups output
 
