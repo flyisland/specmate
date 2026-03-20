@@ -138,7 +138,66 @@ Frontmatter is the YAML block between the opening `---` and the first closing
 
 ---
 
-## 3. Filename parsing
+## 3. Task Spec runtime contract
+
+Task Specs are verification documents, but a subset of their frontmatter is
+also executed by specmate at runtime. These fields are part of the document
+model and must be parsed consistently by `check`, `run`, and any future
+automation commands.
+
+### `exec-plan`
+
+Optional. Links the Task Spec to its parent Exec Plan.
+
+- Value must be a valid Exec Plan id such as `exec-001`
+- If present, it must point to an existing Exec Plan document
+- `specmate run` uses this link to resolve task dependencies before execution
+
+### `guidelines`
+
+Optional. A list of guideline file paths relative to the repository root.
+
+- Every listed file must exist
+- Every listed file must resolve to a Guideline document
+- `specmate run` injects the referenced guideline files into coding and review
+  agent context verbatim
+
+### `boundaries`
+
+Required for Task Specs with status `active`.
+
+`allowed` is a list of repository-relative glob patterns describing the files
+the agent may modify.
+
+`forbidden_patterns` is an optional list of repository-relative glob patterns
+describing files the agent must never modify, even if they also match an
+`allowed` pattern.
+
+Rules:
+
+- `boundaries.allowed` must contain at least one pattern for an `active` Task Spec
+- if a file matches both `allowed` and `forbidden_patterns`, it is forbidden
+- `specs/**` must appear in `forbidden_patterns` for every `active` Task Spec
+
+### `completion_criteria`
+
+Required for Task Specs with status `active`. Must contain at least one item.
+
+Each item binds a human-readable scenario to an exact test function name.
+`specmate run` executes each `test` by exact name using the project's test
+runner contract defined in `specs/project.md`.
+
+Rules:
+
+- every item must include `id`, `scenario`, and `test`
+- `id` values must be unique within the spec and follow `cc-NNN`
+- `scenario` must be non-empty
+- `test` must be non-empty
+- a missing or undiscoverable test is a failure, not a skip
+
+---
+
+## 4. Filename parsing
 
 Document type and ID are derived from the filename, not from frontmatter.
 The filename is the canonical identifier — frontmatter `id` is not stored
@@ -161,7 +220,7 @@ Files that do not match any pattern are ignored by specmate.
 
 ---
 
-## 4. Directory resolver
+## 5. Directory resolver
 
 Given a `DocType` and `Status`, the directory resolver returns the expected
 path for the file. This is used by `specmate move` to determine where to
@@ -196,7 +255,7 @@ OrgSpec             → specs/
 
 ---
 
-## 5. Status transition rules
+## 6. Status transition rules
 
 The transition table defines which status changes are legal. Illegal
 transitions are rejected with an error.
@@ -215,6 +274,7 @@ transitions are rejected with an error.
 |---|---|---|
 | `draft` | `candidate` | |
 | `candidate` | `implemented` | all Exec Plans referencing this doc must be `completed` |
+| `candidate` | `obsolete` | design abandoned or split before implementation; keep the document for ID continuity |
 | `implemented` | `obsolete` | module removed (Flow C) or superseded (Flow B) |
 
 **Design Patch**
@@ -244,7 +304,7 @@ transitions are rejected with an error.
 
 ---
 
-## 6. Validation rules
+## 7. Validation rules
 
 The document model enforces these rules on every document it loads.
 Violations produce structured errors that include the file path, the
@@ -260,12 +320,14 @@ field that failed, and the expected value.
 | No stale refs | candidate, implemented | referenced docs (`prd`, `design-doc`, `exec-plan`) are not `obsolete` or `obsolete:merged` |
 | Unique IDs | per DocType | no two documents of the same type share an ID |
 | CC ids unique | TaskSpec | no two completion criteria share an `id` within a spec |
+| Guideline files exist | TaskSpec | each `guidelines` path resolves to an existing Guideline |
 | allowed non-empty | TaskSpec with `active` status | `boundaries.allowed` has at least one entry |
+| specs locked | TaskSpec with `active` status | `boundaries.forbidden_patterns` includes `specs/**` |
 | criteria non-empty | TaskSpec with `active` status | `completion_criteria` has at least one entry |
 
 ---
 
-## 7. ID allocation
+## 8. ID allocation
 
 When `specmate new` creates a document, it allocates the next available ID
 for that DocType by scanning all existing documents across all subdirectories.

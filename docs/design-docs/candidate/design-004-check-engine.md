@@ -87,7 +87,7 @@ Validates frontmatter fields for every document.
 
 Validates that every file lives in the directory that matches its status.
 
-Uses the directory resolver from design-002 to compute the expected directory
+Uses the directory resolver from design-003 to compute the expected directory
 for each document's `(DocType, Status)` pair, then compares against the
 actual file location.
 

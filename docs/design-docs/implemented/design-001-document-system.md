@@ -175,6 +175,7 @@ draft → approved → obsolete
 
 ```
 draft → candidate → implemented → obsolete
+                  ↘ obsolete
 ```
 
 Patch doc terminal status: `obsolete:merged`
@@ -184,7 +185,7 @@ Patch doc terminal status: `obsolete:merged`
 | `draft` | Design being written. Agents must not execute against a draft design. |
 | `candidate` | Design finalised. Codebase not yet implemented. Agent's job: *implement this design*. Exec Plans and Task Specs are created at this stage. |
 | `implemented` | Codebase fully consistent with this document. Any divergence is a bug, not a doc issue. Only one `implemented` Design Doc per module at any time. |
-| `obsolete` | Module removed from codebase entirely. No replacement doc exists. |
+| `obsolete` | Design retired. This may mean the implemented module was removed, or that a draft/candidate design was abandoned before implementation. The document stays in history so its ID is never reused. |
 | `obsolete:merged` | Patch doc only. Content has been merged back into the parent Design Doc. Requires `merged-into: <doc-id>` in frontmatter. Parent doc remains `implemented` and is the sole source of truth going forward. |
 
 **Key rule**: `implemented` means the document IS the source of truth.
