@@ -41,7 +41,7 @@ parameterised by `DocType` — a `Status::Candidate` is only valid for
 ```
 Prd:          Draft | Approved | Obsolete
 DesignDoc:    Draft | Candidate | Implemented | Obsolete
-DesignPatch:  Draft | Candidate | Implemented | ObsoleteMerged
+DesignPatch:  Draft | Candidate | Implemented | Obsolete | ObsoleteMerged
 ExecPlan:     Draft | Active | Completed | Abandoned
 TaskSpec:     Draft | Active | Completed | Cancelled
 ProjectSpec:  Active          (single status, no transitions)
@@ -81,7 +81,7 @@ Document:
   id:        DocId
   doc_type:  DocType
   status:    Status           # Guideline status is implicit Active
-  title:     String
+  title:     Option<String>
   path:      PathBuf          # absolute path to the file
   frontmatter: Frontmatter    # all parsed frontmatter fields
   raw:       String           # original file content
@@ -271,6 +271,7 @@ DesignDoc + Obsolete     → docs/design-docs/obsolete/
 DesignPatch + Draft           → docs/design-docs/draft/
 DesignPatch + Candidate       → docs/design-docs/candidate/
 DesignPatch + Implemented     → docs/design-docs/implemented/
+DesignPatch + Obsolete        → docs/design-docs/obsolete/
 DesignPatch + ObsoleteMerged → docs/design-docs/obsolete/
 
 ExecPlan + Draft       → docs/exec-plans/draft/
@@ -349,7 +350,7 @@ field that failed, and the expected value.
 
 | Rule | Applies to | Check |
 |---|---|---|
-| Title non-empty | all | `title` field exists and is not blank |
+| Title non-empty | docs that declare title | `title` field exists and is not blank where that DocType requires one |
 | ID present | non-Guideline docs | `id` field exists in frontmatter |
 | ID matches path | non-Guideline docs | frontmatter `id` matches the canonical ID derived from filename or fixed path |
 | Valid status | docs with explicit status | `status` value is in the allowed set for this DocType |
