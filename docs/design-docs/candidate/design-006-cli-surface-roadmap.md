@@ -63,7 +63,7 @@ Repository-facing docs must reflect this boundary clearly:
 | Command | Purpose | Design home | Status |
 |---|---|---|---|
 | `specmate new` | Create managed documents with allocated IDs and initial frontmatter | Split into a dedicated Design Doc; currently depends on doc model rules in `design-003` | planned |
-| `specmate move` | Perform status transitions and relocate managed documents atomically | Split into a dedicated Design Doc; currently depends on directory resolution in `design-003` | planned |
+| `specmate move` | Perform status transitions and relocate managed documents atomically | `design-007` | planned |
 | `specmate check` | Run mechanical validation across the document system | `design-004` | implemented |
 | `specmate run` | Execute the coding loop for a Task Spec via ACP | `design-005` | planned |
 | `specmate rerun` | Re-enter the agent loop for a previously run task | `design-005` | planned |
@@ -73,7 +73,7 @@ Repository-facing docs must reflect this boundary clearly:
 Notes:
 
 - `specmate run` and `specmate rerun` are grouped because they share one loop design.
-- `specmate new` and `specmate move` are not yet owned by a dedicated command Design Doc even though `design-003` already defines some shared document-model behavior they depend on.
+- `specmate new` is not yet owned by a dedicated command Design Doc even though `design-003` already defines some shared document-model behavior it depends on.
 - `specmate status` and `specmate update-guides` remain roadmap items only until their own design work starts.
 
 ---
