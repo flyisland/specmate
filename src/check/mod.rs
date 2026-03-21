@@ -310,7 +310,7 @@ fn refs_report(index: &DocumentIndex) -> CheckReport {
         .map(|violation| CheckViolation {
             path: make_relative(index, &violation.path),
             message: violation.message,
-            fix: "Update the reference so it points to an existing, non-obsolete document."
+            fix: "Update the reference so it points to an existing document whose status is valid for the current source document."
                 .to_string(),
         })
         .collect::<Vec<_>>();

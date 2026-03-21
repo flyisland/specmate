@@ -8,8 +8,9 @@ mod types;
 pub use id::{next_id, next_patch_number};
 #[allow(unused_imports)]
 pub use types::{
-    Boundaries, CompletionCriterion, DocId, DocType, Document, DocumentIndex, Frontmatter,
-    InvalidManagedEntry, Status, ValidationViolation,
+    AssociatedDocument, AssociationKind, AssociationSummary, Boundaries, CompletionCriterion,
+    DocId, DocType, Document, DocumentIndex, Frontmatter, InvalidManagedEntry, Status,
+    ValidationViolation,
 };
 
 use crate::error::DocumentModelError;
@@ -135,6 +136,156 @@ pub fn expected_directory(doc_type: DocType, status: Status) -> Option<&'static 
     }
 }
 
+/// Returns whether a status is terminal for the given managed document type.
+pub fn is_terminal_status(doc_type: DocType, status: Status) -> bool {
+    match doc_type {
+        DocType::Prd => status == Status::Obsolete,
+        DocType::DesignDoc => status == Status::Obsolete,
+        DocType::DesignPatch => matches!(status, Status::Obsolete | Status::ObsoleteMerged),
+        DocType::ExecPlan => matches!(status, Status::Completed | Status::Abandoned),
+        DocType::TaskSpec => matches!(status, Status::Completed | Status::Cancelled),
+        DocType::ProjectSpec | DocType::OrgSpec | DocType::Guideline => status == Status::Active,
+    }
+}
+
+/// Returns whether a status is considered live for association-aware validation.
+pub fn is_live_status(doc_type: DocType, status: Status) -> bool {
+    !is_terminal_status(doc_type, status)
+}
+
+impl AssociationSummary {
+    /// Returns whether this association set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.related.is_empty()
+    }
+
+    /// Returns whether every related document is in the provided status.
+    pub fn all_in_status(&self, status: Status) -> bool {
+        !self.related.is_empty()
+            && self
+                .related
+                .iter()
+                .all(|document| document.status == status)
+    }
+
+    /// Returns whether every related document is terminal for its own type.
+    pub fn all_terminal(&self) -> bool {
+        !self.related.is_empty()
+            && self
+                .related
+                .iter()
+                .all(|document| is_terminal_status(document.doc_type, document.status))
+    }
+}
+
+/// Builds direct-association summaries for the provided document.
+pub fn association_summaries(
+    index: &DocumentIndex,
+    document: &Document,
+) -> Vec<AssociationSummary> {
+    let owner = document.id.clone();
+    let owner_id = owner.as_string();
+    match document.doc_type {
+        DocType::Prd => vec![AssociationSummary {
+            kind: AssociationKind::PrdDesignDocs,
+            owner,
+            related: index
+                .documents
+                .values()
+                .filter(|candidate| candidate.doc_type == DocType::DesignDoc)
+                .filter(|candidate| candidate.frontmatter.prd.as_deref() == Some(owner_id.as_str()))
+                .map(associated_document)
+                .collect(),
+        }],
+        DocType::DesignDoc => vec![
+            AssociationSummary {
+                kind: AssociationKind::DesignDocPatches,
+                owner: document.id.clone(),
+                related: index
+                    .documents
+                    .values()
+                    .filter(|candidate| candidate.doc_type == DocType::DesignPatch)
+                    .filter(|candidate| {
+                        candidate.frontmatter.parent.as_deref() == Some(owner_id.as_str())
+                    })
+                    .map(associated_document)
+                    .collect(),
+            },
+            AssociationSummary {
+                kind: AssociationKind::DesignDocExecPlans,
+                owner,
+                related: index
+                    .documents
+                    .values()
+                    .filter(|candidate| candidate.doc_type == DocType::ExecPlan)
+                    .filter(|candidate| {
+                        candidate.frontmatter.design_doc.as_deref() == Some(owner_id.as_str())
+                    })
+                    .map(associated_document)
+                    .collect(),
+            },
+        ],
+        DocType::ExecPlan => vec![AssociationSummary {
+            kind: AssociationKind::ExecPlanTasks,
+            owner,
+            related: index
+                .documents
+                .values()
+                .filter(|candidate| candidate.doc_type == DocType::TaskSpec)
+                .filter(|candidate| {
+                    candidate.frontmatter.exec_plan.as_deref() == Some(owner_id.as_str())
+                })
+                .map(associated_document)
+                .collect(),
+        }],
+        _ => Vec::new(),
+    }
+}
+
+/// Builds a predicted repository index for a proposed status transition.
+pub fn preview_transition(
+    index: &DocumentIndex,
+    document: &Document,
+    to: Status,
+) -> Result<DocumentIndex> {
+    let expected = expected_directory(document.doc_type, to).ok_or_else(|| {
+        DocumentModelError::InvalidField {
+            path: document.path.clone(),
+            field: "status",
+            message: format!("no directory mapping for {} {}", document.doc_type, to),
+        }
+    })?;
+    let file_name = document
+        .path
+        .file_name()
+        .ok_or_else(|| DocumentModelError::InvalidField {
+            path: document.path.clone(),
+            field: "path",
+            message: "missing file name".to_string(),
+        })?;
+
+    let mut preview = index.clone();
+    let entry = preview.documents.get_mut(&document.id).ok_or_else(|| {
+        DocumentModelError::InvalidField {
+            path: document.path.clone(),
+            field: "id",
+            message: format!(
+                "document {} is not present in the current index",
+                document.id
+            ),
+        }
+    })?;
+    entry.status = to;
+    entry.path = preview.repo_root.join(expected).join(file_name);
+
+    Ok(preview)
+}
+
+/// Performs repository-level validation for a predicted post-transition index.
+pub fn validate_preview(index: &DocumentIndex) -> Vec<ValidationViolation> {
+    validate_index(index)
+}
+
 /// Validates whether a status transition is legal for a loaded document.
 pub fn validate_transition(index: &DocumentIndex, document: &Document, to: Status) -> Result<()> {
     let doc_type = document.doc_type;
@@ -178,29 +329,7 @@ pub fn validate_transition(index: &DocumentIndex, document: &Document, to: Statu
     };
 
     if legal {
-        if matches!(doc_type, DocType::DesignDoc)
-            && from == Status::Candidate
-            && to == Status::Implemented
-        {
-            let design_id = document.id.as_string();
-            if let Some(blocking_plan) = index.documents.values().find(|candidate| {
-                candidate.doc_type == DocType::ExecPlan
-                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
-                    && candidate.status != Status::Completed
-            }) {
-                return Err(DocumentModelError::InvalidField {
-                    path: document.path.clone(),
-                    field: "status",
-                    message: format!(
-                        "cannot transition to implemented while {} is {}",
-                        blocking_plan.id, blocking_plan.status
-                    ),
-                }
-                .into());
-            }
-        }
-
-        Ok(())
+        validate_transition_gate(index, document, to)
     } else {
         Err(DocumentModelError::IllegalTransition {
             doc_type: doc_type.as_str(),
@@ -274,75 +403,7 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
             }
         }
 
-        if let Some(design_doc) = frontmatter.design_doc.as_deref() {
-            match parse_reference_id(design_doc) {
-                Some(reference @ DocId::DesignDoc(_)) => match index.documents.get(&reference) {
-                    Some(target) if target.status != Status::Obsolete => {}
-                    Some(_) => violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!("design-doc {} is obsolete", reference),
-                    }),
-                    None => violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!("design-doc {} does not exist", reference),
-                    }),
-                },
-                _ => violations.push(ValidationViolation {
-                    path: document.path.clone(),
-                    message: format!("design-doc must reference a Design Doc, found {design_doc}"),
-                }),
-            }
-        }
-
-        if let Some(exec_plan) = frontmatter.exec_plan.as_deref() {
-            match parse_reference_id(exec_plan) {
-                Some(reference @ DocId::ExecPlan(_)) => match index.documents.get(&reference) {
-                    Some(target)
-                        if target.status != Status::Abandoned
-                            && target.status != Status::ObsoleteMerged
-                            && target.status != Status::Obsolete => {}
-                    Some(target) => violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!(
-                            "exec-plan {} has invalid status {}",
-                            reference, target.status
-                        ),
-                    }),
-                    None => violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!("exec-plan {} does not exist", reference),
-                    }),
-                },
-                _ => violations.push(ValidationViolation {
-                    path: document.path.clone(),
-                    message: format!("exec-plan must reference an Exec Plan, found {exec_plan}"),
-                }),
-            }
-        }
-
-        if matches!(document.doc_type, DocType::DesignDoc)
-            && matches!(document.status, Status::Candidate | Status::Implemented)
-        {
-            if let Some(prd) = frontmatter.prd.as_deref() {
-                match parse_reference_id(prd) {
-                    Some(reference @ DocId::Prd(_)) => match index.documents.get(&reference) {
-                        Some(target) if target.status != Status::Obsolete => {}
-                        Some(_) => violations.push(ValidationViolation {
-                            path: document.path.clone(),
-                            message: format!("prd {} is obsolete", reference),
-                        }),
-                        None => violations.push(ValidationViolation {
-                            path: document.path.clone(),
-                            message: format!("prd {} does not exist", reference),
-                        }),
-                    },
-                    _ => violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!("prd must reference a PRD, found {prd}"),
-                    }),
-                }
-            }
-        }
+        validate_relationships(index, document, &mut violations);
 
         if matches!(document.doc_type, DocType::TaskSpec) {
             let mut seen = BTreeSet::new();
@@ -426,6 +487,214 @@ pub fn ensure_index_compliant(index: &DocumentIndex) -> Result<()> {
 fn should_visit(entry: &DirEntry) -> bool {
     let name = entry.file_name().to_string_lossy();
     name != ".git" && name != "target"
+}
+
+fn associated_document(document: &Document) -> AssociatedDocument {
+    AssociatedDocument {
+        id: document.id.clone(),
+        doc_type: document.doc_type,
+        status: document.status,
+    }
+}
+
+fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Status) -> Result<()> {
+    match (document.doc_type, document.status, to) {
+        (DocType::Prd, _, Status::Obsolete) => {
+            let prd_id = document.id.as_string();
+            if let Some(blocking_design) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::DesignDoc
+                    && is_live_status(candidate.doc_type, candidate.status)
+                    && candidate.frontmatter.prd.as_deref() == Some(prd_id.as_str())
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to obsolete while {} is {}",
+                        blocking_design.id, blocking_design.status
+                    ),
+                );
+            }
+        }
+        (DocType::DesignDoc, Status::Candidate, Status::Implemented) => {
+            let design_id = document.id.as_string();
+            if let Some(blocking_plan) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::ExecPlan
+                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
+                    && candidate.status != Status::Completed
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to implemented while {} is {}",
+                        blocking_plan.id, blocking_plan.status
+                    ),
+                );
+            }
+        }
+        (DocType::DesignDoc, _, Status::Obsolete) => {
+            let design_id = document.id.as_string();
+            if let Some(blocking_plan) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::ExecPlan
+                    && is_live_status(candidate.doc_type, candidate.status)
+                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to obsolete while {} is {}",
+                        blocking_plan.id, blocking_plan.status
+                    ),
+                );
+            }
+        }
+        (DocType::DesignPatch, Status::Implemented, Status::ObsoleteMerged) => {
+            match document
+                .frontmatter
+                .merged_into
+                .as_deref()
+                .and_then(parse_reference_id)
+            {
+                Some(reference @ DocId::DesignDoc(_)) => {
+                    if !index.documents.contains_key(&reference) {
+                        return invalid_transition_field(
+                            document,
+                            format!("cannot transition to obsolete:merged because merged-into {reference} does not exist"),
+                        );
+                    }
+                }
+                _ => {
+                    return invalid_transition_field(
+                        document,
+                        "cannot transition to obsolete:merged without a valid merged-into Design Doc"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        (DocType::ExecPlan, Status::Active, Status::Completed) => {
+            let exec_id = document.id.as_string();
+            if let Some(blocking_task) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::TaskSpec
+                    && candidate.frontmatter.exec_plan.as_deref() == Some(exec_id.as_str())
+                    && candidate.status != Status::Completed
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to completed while {} is {}",
+                        blocking_task.id, blocking_task.status
+                    ),
+                );
+            }
+        }
+        (DocType::ExecPlan, Status::Active, Status::Abandoned) => {
+            let exec_id = document.id.as_string();
+            if let Some(blocking_task) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::TaskSpec
+                    && is_live_status(candidate.doc_type, candidate.status)
+                    && candidate.frontmatter.exec_plan.as_deref() == Some(exec_id.as_str())
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to abandoned while {} is {}",
+                        blocking_task.id, blocking_task.status
+                    ),
+                );
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn invalid_transition_field(document: &Document, message: String) -> Result<()> {
+    Err(DocumentModelError::InvalidField {
+        path: document.path.clone(),
+        field: "status",
+        message,
+    }
+    .into())
+}
+
+fn validate_relationships(
+    index: &DocumentIndex,
+    document: &Document,
+    violations: &mut Vec<ValidationViolation>,
+) {
+    let frontmatter = &document.frontmatter;
+
+    if let Some(design_doc) = frontmatter.design_doc.as_deref() {
+        match parse_reference_id(design_doc) {
+            Some(reference @ DocId::DesignDoc(_)) => match index.documents.get(&reference) {
+                Some(target)
+                    if !(is_live_status(document.doc_type, document.status)
+                        && target.status == Status::Obsolete) => {}
+                Some(_) => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!("design-doc {} is obsolete", reference),
+                }),
+                None => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!("design-doc {} does not exist", reference),
+                }),
+            },
+            _ => violations.push(ValidationViolation {
+                path: document.path.clone(),
+                message: format!("design-doc must reference a Design Doc, found {design_doc}"),
+            }),
+        }
+    }
+
+    if let Some(exec_plan) = frontmatter.exec_plan.as_deref() {
+        match parse_reference_id(exec_plan) {
+            Some(reference @ DocId::ExecPlan(_)) => match index.documents.get(&reference) {
+                Some(target)
+                    if !(is_live_status(document.doc_type, document.status)
+                        && target.status == Status::Abandoned) => {}
+                Some(target) => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!(
+                        "exec-plan {} has invalid status {}",
+                        reference, target.status
+                    ),
+                }),
+                None => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!("exec-plan {} does not exist", reference),
+                }),
+            },
+            _ => violations.push(ValidationViolation {
+                path: document.path.clone(),
+                message: format!("exec-plan must reference an Exec Plan, found {exec_plan}"),
+            }),
+        }
+    }
+
+    if matches!(document.doc_type, DocType::DesignDoc) {
+        if let Some(prd) = frontmatter.prd.as_deref() {
+            match parse_reference_id(prd) {
+                Some(reference @ DocId::Prd(_)) => match index.documents.get(&reference) {
+                    Some(target)
+                        if !(is_live_status(document.doc_type, document.status)
+                            && target.status == Status::Obsolete) => {}
+                    Some(_) => violations.push(ValidationViolation {
+                        path: document.path.clone(),
+                        message: format!("prd {} is obsolete", reference),
+                    }),
+                    None => violations.push(ValidationViolation {
+                        path: document.path.clone(),
+                        message: format!("prd {} does not exist", reference),
+                    }),
+                },
+                _ => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!("prd must reference a PRD, found {prd}"),
+                }),
+            }
+        }
+    }
 }
 
 fn classify_path(relative: &Path) -> PathDisposition {

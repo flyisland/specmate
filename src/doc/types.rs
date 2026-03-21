@@ -251,3 +251,38 @@ pub struct ValidationViolation {
     /// Human-readable explanation.
     pub message: String,
 }
+
+/// Stable kinds of direct-association summaries exposed by the document model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssociationKind {
+    /// Design Docs associated with a PRD.
+    PrdDesignDocs,
+    /// Design Patches associated with a parent Design Doc.
+    DesignDocPatches,
+    /// Exec Plans associated with a Design Doc.
+    DesignDocExecPlans,
+    /// Task Specs associated with an Exec Plan.
+    ExecPlanTasks,
+}
+
+/// One related document returned in an association summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedDocument {
+    /// Canonical ID of the related document.
+    pub id: DocId,
+    /// Loaded document type.
+    pub doc_type: DocType,
+    /// Effective lifecycle status.
+    pub status: Status,
+}
+
+/// Summary of one direct-association set for a document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociationSummary {
+    /// The relationship family represented by this summary.
+    pub kind: AssociationKind,
+    /// Canonical ID of the anchor document.
+    pub owner: DocId,
+    /// Related documents in this association set.
+    pub related: Vec<AssociatedDocument>,
+}

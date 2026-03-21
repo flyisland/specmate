@@ -1,12 +1,14 @@
 ---
 id: task-0005
 title: "Implement association-aware transitions"
-status: draft
+status: active
 guidelines:
   - docs/guidelines/specmate-principles.md
   - docs/guidelines/cli-conventions.md
 boundaries:
   allowed:
+    - "docs/design-docs/draft/design-003-patch-01-association-aware-transitions.md"
+    - "docs/design-docs/draft/design-004-patch-01-check-refs-steady-state-links.md"
     - "src/doc/**"
     - "src/check/**"
     - "src/error.rs"
@@ -45,7 +47,7 @@ completion_criteria:
 
 Implement `design-003-patch-01-association-aware-transitions` in the shared
 document model and align `specmate check` with the resulting steady-state
-reference semantics.
+reference semantics through a paired `design-004` patch.
 
 This task should keep the model-level split explicit:
 
@@ -57,6 +59,8 @@ The task does not implement the `specmate move` command itself.
 
 # Boundaries
 
+- `docs/design-docs/draft/design-003-patch-01-association-aware-transitions.md`
+- `docs/design-docs/draft/design-004-patch-01-check-refs-steady-state-links.md`
 - `src/doc/**`
 - `src/check/**`
 - `src/error.rs`
@@ -84,4 +88,4 @@ The task does not implement the `specmate move` command itself.
 
 The shared document model exposes association-aware transition validation and
 association summaries, and `specmate check refs` reports only steady-state
-reference violations.
+reference violations in a way that is consistent with the `design-004` patch.

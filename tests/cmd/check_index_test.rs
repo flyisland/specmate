@@ -144,3 +144,39 @@ fn test_check_aggregates_index_check_results() {
     assert!(stdout.contains("[fail] check status"));
     assert!(stdout.contains("1 check failed."));
 }
+
+#[test]
+fn test_check_refs_distinguishes_steady_state_validity_from_transition_gates() {
+    let valid_dir = temp_repo();
+    create_compliant_repo(valid_dir.path());
+
+    let (valid_result, valid_stdout, _) = run_check(&valid_dir, Some(CheckCommand::Refs));
+
+    assert!(
+        valid_result.is_ok(),
+        "steady-state valid repo should pass refs"
+    );
+    assert!(valid_stdout.contains("[pass] check refs"));
+
+    let invalid_dir = temp_repo();
+    create_compliant_repo(invalid_dir.path());
+    write_file(
+        invalid_dir.path(),
+        "docs/design-docs/obsolete/design-002-stale-design.md",
+        "---\nid: design-002\ntitle: \"Stale design\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
+    );
+    write_file(
+        invalid_dir.path(),
+        "docs/exec-plans/active/exec-002-stale-exec.md",
+        "---\nid: exec-002\ntitle: \"Stale exec\"\nstatus: active\ndesign-doc: design-002\n---\n\n# Exec\n",
+    );
+
+    let (invalid_result, invalid_stdout, _) = run_check(&invalid_dir, Some(CheckCommand::Refs));
+
+    assert!(
+        invalid_result.is_err(),
+        "live ref to obsolete design should fail"
+    );
+    assert!(invalid_stdout.contains("[fail] check refs"));
+    assert!(invalid_stdout.contains("design-doc design-002 is obsolete"));
+}
