@@ -1,7 +1,7 @@
 ---
 id: task-0001
 title: "Implement specmate init command"
-status: archived
+status: completed
 guidelines:
   - docs/guidelines/specmate-principles.md
   - docs/guidelines/cli-conventions.md

@@ -1,5 +1,5 @@
 ---
-id: design-001-patch-01-clarify-document-levels
+id: design-001-patch-01
 title: "Clarify document levels"
 status: obsolete:merged
 parent: design-001
