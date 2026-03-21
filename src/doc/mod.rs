@@ -4,7 +4,9 @@ mod frontmatter;
 mod id;
 mod types;
 
+#[allow(unused_imports)]
 pub use id::{next_id, next_patch_number};
+#[allow(unused_imports)]
 pub use types::{
     Boundaries, CompletionCriterion, DocId, DocType, Document, DocumentIndex, Frontmatter,
     InvalidManagedEntry, Status, ValidationViolation,

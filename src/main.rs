@@ -1,8 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-
-mod cmd;
-mod config;
+use specmate::cmd;
 
 /// specmate — CLI companion for document-driven AI coding
 #[derive(Parser)]

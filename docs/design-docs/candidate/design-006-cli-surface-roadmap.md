@@ -42,9 +42,10 @@ details.
 
 ## 2. Current implementation boundary
 
-As of this document revision, the only implemented top-level command is:
+As of this document revision, the implemented top-level commands are:
 
 - `specmate init`
+- `specmate check`
 
 All other command families mentioned below are planning-only until code lands
 and the command is wired into the CLI.
@@ -63,7 +64,7 @@ Repository-facing docs must reflect this boundary clearly:
 |---|---|---|---|
 | `specmate new` | Create managed documents with allocated IDs and initial frontmatter | Split into a dedicated Design Doc; currently depends on doc model rules in `design-003` | planned |
 | `specmate move` | Perform status transitions and relocate managed documents atomically | Split into a dedicated Design Doc; currently depends on directory resolution in `design-003` | planned |
-| `specmate check` | Run mechanical validation across the document system | `design-004` | planned |
+| `specmate check` | Run mechanical validation across the document system | `design-004` | implemented |
 | `specmate run` | Execute the coding loop for a Task Spec via ACP | `design-005` | planned |
 | `specmate rerun` | Re-enter the agent loop for a previously run task | `design-005` | planned |
 | `specmate status` | Show system status and doc progress views | Split into a dedicated Design Doc | planned |
