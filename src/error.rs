@@ -59,6 +59,10 @@ pub enum DocumentModelError {
         to: String,
     },
 
+    /// The repository document model is not compliant enough to support the requested operation.
+    #[error("repository document model is invalid at {path}: {message}")]
+    InvalidRepositoryState { path: PathBuf, message: String },
+
     /// The caller requested ID allocation for a document type that does not support numeric allocation.
     #[error("unsupported id allocation for {doc_type}")]
     UnsupportedIdAllocation { doc_type: &'static str },

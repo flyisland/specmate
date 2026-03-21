@@ -1,7 +1,7 @@
 ---
 id: design-003
 title: "Document Model"
-status: candidate
+status: implemented
 design-doc: design-001
 ---
 
@@ -425,6 +425,14 @@ represent:
 Invalid entries inside managed directories must remain visible to validation so
 `specmate check` can report actionable errors. They must not be silently
 dropped during indexing.
+
+Operations that depend on document-model correctness must not proceed on top of
+an already-invalid repository state. Commands that allocate IDs, create managed
+documents, move managed documents, or transition managed document status must
+first build and validate the repository document index. If the repository
+contains invalid managed entries or repository-level validation violations,
+those operations must fail and report the violations instead of inferring new
+document state from inconsistent input.
 
 ---
 

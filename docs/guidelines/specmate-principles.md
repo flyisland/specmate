@@ -116,6 +116,34 @@ additional documentation.
 
 ---
 
+## Document integrity
+
+specmate-managed documents are a shared operational contract. The repository's
+document model must remain verifiably compliant and self-consistent at all
+times; specmate must not treat a known-invalid or half-consistent document
+state as a normal input to write operations.
+
+When a command depends on the document model to make decisions, it must first
+validate the repository-level document state. This includes operations such as
+allocating IDs, creating managed documents, moving managed documents, or
+changing managed document status.
+
+If the repository contains known document-model violations, specmate must stop
+and report them instead of continuing on top of that damaged state. In
+particular:
+
+1. Invalid managed entries must remain visible and actionable.
+2. Write operations must not infer new state from a repository that is already
+   known to be invalid.
+3. Users must repair document-model violations before proceeding with
+   operations that mutate the managed document system.
+
+This rule exists to prevent document rot: once specmate knows the document
+system is inconsistent, it must restore compliance before making further
+document-model decisions.
+
+---
+
 ## Idempotency
 
 All specmate commands that write files or create git branches must be

@@ -95,6 +95,13 @@ pub fn build_index(repo_root: &Path) -> Result<DocumentIndex> {
     Ok(index)
 }
 
+/// Builds a repository index and fails if the managed document system is not compliant.
+pub fn build_compliant_index(repo_root: &Path) -> Result<DocumentIndex> {
+    let index = build_index(repo_root).context("building document index")?;
+    ensure_index_compliant(&index)?;
+    Ok(index)
+}
+
 /// Resolves the expected relative directory for a `(DocType, Status)` pair.
 pub fn expected_directory(doc_type: DocType, status: Status) -> Option<&'static str> {
     match (doc_type, status) {
@@ -126,8 +133,10 @@ pub fn expected_directory(doc_type: DocType, status: Status) -> Option<&'static 
     }
 }
 
-/// Validates whether a status transition is legal for a document type.
-pub fn validate_transition(doc_type: DocType, from: Status, to: Status) -> Result<()> {
+/// Validates whether a status transition is legal for a loaded document.
+pub fn validate_transition(index: &DocumentIndex, document: &Document, to: Status) -> Result<()> {
+    let doc_type = document.doc_type;
+    let from = document.status;
     let legal = match doc_type {
         DocType::Prd => matches!(
             (from, to),
@@ -167,6 +176,28 @@ pub fn validate_transition(doc_type: DocType, from: Status, to: Status) -> Resul
     };
 
     if legal {
+        if matches!(doc_type, DocType::DesignDoc)
+            && from == Status::Candidate
+            && to == Status::Implemented
+        {
+            let design_id = document.id.as_string();
+            if let Some(blocking_plan) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::ExecPlan
+                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
+                    && candidate.status != Status::Completed
+            }) {
+                return Err(DocumentModelError::InvalidField {
+                    path: document.path.clone(),
+                    field: "status",
+                    message: format!(
+                        "cannot transition to implemented while {} is {}",
+                        blocking_plan.id, blocking_plan.status
+                    ),
+                }
+                .into());
+            }
+        }
+
         Ok(())
     } else {
         Err(DocumentModelError::IllegalTransition {
@@ -217,6 +248,25 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
                     path: document.path.clone(),
                     message: format!(
                         "merged-into must reference a Design Doc, found {merged_into}"
+                    ),
+                }),
+            }
+        }
+
+        if let Some(superseded_by) = frontmatter.superseded_by.as_deref() {
+            match parse_reference_id(superseded_by) {
+                Some(reference @ DocId::DesignDoc(_)) => {
+                    if !index.documents.contains_key(&reference) {
+                        violations.push(ValidationViolation {
+                            path: document.path.clone(),
+                            message: format!("superseded-by {} does not exist", reference),
+                        });
+                    }
+                }
+                _ => violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!(
+                        "superseded-by must reference a Design Doc, found {superseded_by}"
                     ),
                 }),
             }
@@ -295,6 +345,15 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
         if matches!(document.doc_type, DocType::TaskSpec) {
             let mut seen = BTreeSet::new();
             for criterion in &frontmatter.completion_criteria {
+                if !is_completion_criterion_id(&criterion.id) {
+                    violations.push(ValidationViolation {
+                        path: document.path.clone(),
+                        message: format!(
+                            "completion criterion id {} must use cc-NNN format",
+                            criterion.id
+                        ),
+                    });
+                }
                 if !seen.insert(criterion.id.clone()) {
                     violations.push(ValidationViolation {
                         path: document.path.clone(),
@@ -322,6 +381,44 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
     }
 
     violations
+}
+
+/// Fails if the loaded repository index contains invalid entries or validation violations.
+pub fn ensure_index_compliant(index: &DocumentIndex) -> Result<()> {
+    if let Some(entry) = index.invalid_entries.first() {
+        return Err(DocumentModelError::InvalidRepositoryState {
+            path: index.repo_root.clone(),
+            message: format!(
+                "found {} invalid managed entr{}; first violation: {} ({})",
+                index.invalid_entries.len(),
+                if index.invalid_entries.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                },
+                entry.path.display(),
+                entry.reason
+            ),
+        }
+        .into());
+    }
+
+    let violations = validate_index(index);
+    if let Some(violation) = violations.first() {
+        return Err(DocumentModelError::InvalidRepositoryState {
+            path: index.repo_root.clone(),
+            message: format!(
+                "found {} repository-level validation violation{}; first violation: {} ({})",
+                violations.len(),
+                if violations.len() == 1 { "" } else { "s" },
+                violation.path.display(),
+                violation.message
+            ),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
 fn should_visit(entry: &DirEntry) -> bool {
@@ -663,6 +760,14 @@ fn validate_frontmatter(
                     }
                     .into());
                 }
+                if !is_completion_criterion_id(&criterion.id) {
+                    return Err(DocumentModelError::InvalidField {
+                        path: relative.to_path_buf(),
+                        field: "completion_criteria.id",
+                        message: format!("{} must use cc-NNN format", criterion.id.trim()),
+                    }
+                    .into());
+                }
             }
         }
         _ => {}
@@ -767,6 +872,11 @@ fn valid_slug(parts: &[&str]) -> bool {
 
 fn is_fixed_digits(value: &str, digits: usize) -> bool {
     value.len() == digits && value.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_completion_criterion_id(value: &str) -> bool {
+    let parts: Vec<&str> = value.trim().split('-').collect();
+    matches!(parts.as_slice(), ["cc", digits] if is_fixed_digits(digits, 3))
 }
 
 fn parse_reference_id(raw: &str) -> Option<DocId> {
