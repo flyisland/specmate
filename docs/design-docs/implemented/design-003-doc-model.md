@@ -342,7 +342,51 @@ transitions are rejected with an error.
 
 ---
 
-## 7. Validation rules
+## 7. Transition evaluation model
+
+Commands that change managed-document state must evaluate a requested move in
+three distinct steps:
+
+```text
+validate_transition(index, document, to_status)
+    checks whether the requested status edge is legal for this DocType
+    checks any transition-time gates tied to that edge
+
+preview_transition(index, document, to_status)
+    returns a predicted repository index with:
+      - the moved document status updated
+      - the moved document path resolved through the directory resolver
+      - all other documents unchanged
+
+validate_preview(preview_index)
+    runs repository-level validation on the predicted post-transition state
+```
+
+This split keeps two rule classes separate:
+
+- **steady-state validity** answers whether the repository is valid now
+- **transition-time gates** answer whether one specific status move may happen now
+
+At minimum, the shared document model must enforce these transition-time gates:
+
+- `Prd -> Obsolete` is blocked while any live Design Doc still references that PRD
+- `DesignDoc -> Implemented` is blocked while any referencing Exec Plan is not `completed`
+- `DesignDoc -> Obsolete` is blocked while any live Exec Plan still references that Design Doc
+- `DesignPatch -> ObsoleteMerged` requires a valid `merged-into` Design Doc reference
+- `ExecPlan -> Completed` is blocked while any referencing Task Spec is not `completed`
+- `ExecPlan -> Abandoned` is blocked while any live Task Spec still references that Exec Plan
+
+Commands such as `specmate move` and `specmate run` must fail before writing if:
+
+- the current repository is invalid, or
+- the predicted post-transition repository would be invalid
+
+The document model never performs implicit cascading transitions on related
+documents. It only reports whether the requested move is legal.
+
+---
+
+## 8. Validation rules
 
 The document model enforces these rules on every document it loads.
 Violations produce structured errors that include the file path, the
@@ -360,7 +404,7 @@ field that failed, and the expected value.
 | parent present | DesignPatch | `parent` field exists and points to an existing Design Doc |
 | design-doc valid when present | ExecPlan | if `design-doc` exists, it points to an existing Design Doc |
 | superseded-by present | DesignDoc with `obsolete` via Flow B | `superseded-by` field exists and points to an existing doc |
-| No stale refs | candidate, implemented | referenced docs (`prd`, `design-doc`, `exec-plan`) are not `obsolete` or `obsolete:merged` |
+| No stale live refs | live Design Docs, Exec Plans, Task Specs | live references (`prd`, `design-doc`, `exec-plan`) must not point to obsolete or abandoned parents; historical descendants may retain those links if the target still exists and has the correct type |
 | Unique IDs | per DocType | no two documents of the same type share an ID |
 | CC ids unique | TaskSpec | no two completion criteria share an `id` within a spec |
 | Guideline files exist | TaskSpec | each `guidelines` path resolves to an existing Guideline |
@@ -370,7 +414,32 @@ field that failed, and the expected value.
 
 ---
 
-## 8. ID allocation
+## 9. Association summaries
+
+The shared document model must also expose read-only association summaries for
+higher-level commands that want to report repository facts without redefining
+relationship logic.
+
+Supported direct associations:
+
+- PRD ↔ Design Doc via `DesignDoc.prd`
+- Design Doc ↔ Design Patch via `DesignPatch.parent`
+- Design Doc ↔ Exec Plan via `ExecPlan.design-doc`
+- Exec Plan ↔ Task Spec via `TaskSpec.exec-plan`
+
+For each association set, the model must support aggregate predicates that are
+useful to commands:
+
+- all related documents are in a caller-specified status
+- all related documents are terminal for their own document type
+- no related documents exist
+
+These summaries are facts only. They do not imply or trigger automatic status
+changes.
+
+---
+
+## 10. ID allocation
 
 When `specmate new` creates a document, it allocates the next available ID
 for that DocType by scanning all existing documents across all subdirectories.
@@ -395,7 +464,7 @@ next_patch_number(parent_id) → u8:
 
 ---
 
-## 9. Implementation responsibilities
+## 11. Implementation responsibilities
 
 The document model is a shared subsystem. `specmate check`, `specmate move`,
 `specmate new`, and `specmate run` must all consume the same document-model
@@ -411,8 +480,11 @@ At minimum, the implementation must provide these capabilities:
 - load a document into a validated `Document` value
 - resolve the expected directory for a document from its `(DocType, Status)`
 - validate whether a requested status transition is legal
+- build a predicted repository index for a requested status transition
+- validate the predicted repository index after a requested status transition
 - allocate the next available document ID for a given `DocType`
 - allocate the next patch sequence number for a given parent Design Doc
+- expose direct-association summaries and aggregate predicates
 - validate Task Spec runtime fields used by execution-time commands
 
 The implementation must also expose a repository-level document index that can
@@ -436,7 +508,7 @@ document state from inconsistent input.
 
 ---
 
-## 10. Verification requirements
+## 12. Verification requirements
 
 An implementation of this design is not considered complete unless the
 document-model behaviour is verified through automated tests.
@@ -451,8 +523,10 @@ At minimum, tests must cover:
 - frontmatter validation for required and conditionally required fields
 - directory resolution for every valid `(DocType, Status)` combination
 - status transition validation for both legal and illegal transitions
+- predicted-state validation for post-transition repository checks
 - Task Spec runtime-field validation, including `guidelines`, `boundaries`,
   and `completion_criteria`
+- association-summary queries for each supported direct-association type
 - ID allocation across mixed active, archived, and obsolete documents
 - patch sequence allocation scoped to a parent Design Doc
 

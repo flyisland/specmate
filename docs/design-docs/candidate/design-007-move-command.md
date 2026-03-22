@@ -14,9 +14,9 @@ This document defines `specmate move` — the command that performs an allowed
 status transition on a managed document and updates its file location to match
 the target status.
 
-`design-003` already defines the shared document model, directory resolver,
-and legal transition table. `design-003-patch-01` extends that model with
-association-aware transition gating and association-summary queries.
+`design-003` defines the shared document model that this command consumes:
+directory resolution, transition validation, post-transition preview
+validation, and association-summary queries.
 
 This document owns the command surface and write-path behaviour for applying
 those shared rules safely.
@@ -31,8 +31,8 @@ hand.
 
 **Document-model rules stay centralised.** `specmate move` must call the
 document-model loader, directory resolver, transition validator, and
-association-summary helpers from `design-003` plus `design-003-patch-01`.
-It must not reimplement status legality or path mapping.
+preview / association-summary helpers from `design-003`. It must not
+reimplement status legality or path mapping.
 
 **Status update and relocation are one operation.** A successful move updates
 frontmatter and file location together. The command must never leave a file
@@ -68,7 +68,7 @@ specmate move design-001 implemented --dry-run
 Arguments:
 
 - `<doc-id>`: canonical managed document ID such as `prd-001`, `design-004`,
-  `design-004-patch-01-api-cleanup`, `exec-001`, or `task-0007`
+  `design-004-patch-01`, `exec-001`, or `task-0007`
 - `<to-status>`: target status string valid for the resolved document type
 
 Options:
@@ -95,7 +95,7 @@ lifecycles:
 
 - `project`
 - `org`
-- guideline paths or inferred Guideline IDs
+- Guideline IDs such as `specmate-principles`
 
 Reason: those document types are always active and have no legal status
 transitions.
@@ -107,17 +107,16 @@ transitions.
 Before planning or applying a move, `specmate move` must:
 
 1. Locate the repository root and build the full document index.
-2. Validate the repository-level document state.
+2. Validate current repository steady-state compliance through the shared
+   document model.
 3. Resolve `<doc-id>` to exactly one valid managed document.
 4. Parse `<to-status>` in the status vocabulary for that document type.
-5. Validate current repository steady-state compliance through the shared
-   document model.
-6. Validate the requested transition through the shared transition validator,
+5. Validate the requested transition through the shared transition validator,
    including any transition-time gates defined by the document model.
-7. Build the predicted post-move repository state and validate it through the
+6. Build the predicted post-move repository state and validate it through the
    shared document model.
-8. Resolve the destination directory using the shared directory resolver.
-9. Check whether the destination path would collide with an existing file.
+7. Resolve the destination directory using the shared directory resolver.
+8. Check whether the destination path would collide with an existing file.
 
 If any of these checks fails, the command exits with code `1` and writes no
 files.
@@ -131,7 +130,7 @@ an already-invalid document system.
 ## 5. Transition semantics
 
 `specmate move` follows the transition table and association-aware transition
-rules defined by `design-003` and `design-003-patch-01`.
+rules defined by `design-003`.
 
 Command-specific rules:
 
