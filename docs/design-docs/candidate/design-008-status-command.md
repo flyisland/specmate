@@ -53,13 +53,14 @@ readable in terminals and by agents without requiring TUI widgets.
 ## 2. Command surface
 
 ```bash
-specmate status [doc-id]
+specmate status [doc-id] [--all]
 ```
 
 Examples:
 
 ```bash
 specmate status
+specmate status --all
 specmate status design-008
 specmate status task-0005
 ```
@@ -67,6 +68,8 @@ specmate status task-0005
 Semantics:
 
 - `specmate status` renders the repository dashboard
+- `specmate status --all` renders the repository dashboard plus an exhaustive
+  all-documents listing across statuses
 - `specmate status <doc-id>` renders a focused detail view for one managed
   document
 
@@ -146,6 +149,7 @@ contracts and roadmap anchors.
 
 It must list at least:
 
+- `draft` Design Docs
 - `implemented` Design Docs
 - `candidate` Design Docs
 
@@ -163,9 +167,14 @@ Rows must be sorted by canonical design id ascending within each status group.
 
 This allows a user to answer:
 
+- which designs are still being authored
 - which designs are current contracts
 - which designs are ready for implementation
 - whether a design already has associated execution work
+
+Design Docs in inactive end states such as `obsolete` are not expanded by
+default in this section. They remain visible through totals and the optional
+`--all` view.
 
 ### 4.3 Execution overview
 
@@ -212,6 +221,25 @@ totals table in v1 because they do not represent lifecycle progress.
 
 Within each document type row, statuses must appear in lifecycle order rather
 than alphabetical order so the output mirrors the document model.
+
+### 4.5 Optional all-documents view
+
+When `--all` is passed without a `doc-id`, the command must append an
+`All Documents` section after `Status Totals`.
+
+This section lists every valid lifecycle-managed document, regardless of
+status, grouped by document type and sorted by canonical id ascending.
+
+Each row must include:
+
+- doc id
+- document type
+- status
+- title
+- repository-relative path
+
+This view exists so users can explicitly request the exhaustive inventory
+without making the default dashboard noisy.
 
 ---
 
@@ -353,6 +381,9 @@ fit in a normal terminal scrollback without expanding every historical
 document. For that reason, dashboard sections list current-focus rows plus
 aggregated totals, while the single-document view is allowed to be more
 verbose.
+
+`--all` is the explicit opt-in escape hatch for users who want the exhaustive
+inventory instead of the compact default dashboard.
 
 ---
 

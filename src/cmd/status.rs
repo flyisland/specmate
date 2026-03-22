@@ -13,11 +13,14 @@ use std::path::{Path, PathBuf};
 /// Arguments for `specmate status`.
 #[derive(Args, Debug, Clone)]
 #[command(
-    after_help = "Examples:\n  specmate status\n  specmate status design-008\n  specmate status task-0007"
+    after_help = "Examples:\n  specmate status\n  specmate status --all\n  specmate status design-008\n  specmate status task-0007"
 )]
 pub struct StatusArgs {
     /// Optional managed document id such as `task-0007` or `design-008`
     pub doc_id: Option<String>,
+    /// Expand the dashboard to list all lifecycle-managed documents
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Debug)]
@@ -94,14 +97,18 @@ fn run_in_repo<W: Write, E: Write>(
                 bail!("specmate status failed");
             }
         },
-        None => render_dashboard(&index, &violations),
+        None => render_dashboard(&index, &violations, args.all),
     };
 
     write!(stdout, "{output}")?;
     Ok(())
 }
 
-fn render_dashboard(index: &DocumentIndex, violations: &[ValidationViolation]) -> String {
+fn render_dashboard(
+    index: &DocumentIndex,
+    violations: &[ValidationViolation],
+    show_all: bool,
+) -> String {
     let mut output = String::new();
     output.push_str("Repository Health\n");
     output.push_str(&format!(
@@ -128,6 +135,7 @@ fn render_dashboard(index: &DocumentIndex, violations: &[ValidationViolation]) -
 
     output.push('\n');
     output.push_str("Design Overview\n");
+    render_design_bucket(&mut output, index, Status::Draft, "draft");
     render_design_bucket(&mut output, index, Status::Implemented, "implemented");
     render_design_bucket(&mut output, index, Status::Candidate, "candidate");
 
@@ -255,6 +263,16 @@ fn render_dashboard(index: &DocumentIndex, violations: &[ValidationViolation]) -
             Status::Cancelled,
         ],
     );
+
+    if show_all {
+        output.push('\n');
+        output.push_str("All Documents\n");
+        render_all_documents_bucket(&mut output, index, DocType::Prd);
+        render_all_documents_bucket(&mut output, index, DocType::DesignDoc);
+        render_all_documents_bucket(&mut output, index, DocType::DesignPatch);
+        render_all_documents_bucket(&mut output, index, DocType::ExecPlan);
+        render_all_documents_bucket(&mut output, index, DocType::TaskSpec);
+    }
 
     output
 }
@@ -514,6 +532,25 @@ fn render_status_totals(
     output.push_str(&format!("  {:<11} {}\n", doc_type.as_str(), parts));
 }
 
+fn render_all_documents_bucket(output: &mut String, index: &DocumentIndex, doc_type: DocType) {
+    output.push_str(&format!("  {}\n", doc_type.as_str()));
+    let documents = all_documents_by_type(index, doc_type);
+    if documents.is_empty() {
+        output.push_str("    none\n");
+        return;
+    }
+
+    for document in documents {
+        output.push_str(&format!(
+            "    {}  {}  {}  {}\n",
+            document.id,
+            document.status,
+            title_for(document),
+            make_relative(index, &document.path)
+        ));
+    }
+}
+
 fn related_warnings(
     index: &DocumentIndex,
     violations: &[ValidationViolation],
@@ -738,6 +775,16 @@ fn documents_by_type_and_status(
         .documents
         .values()
         .filter(|document| document.doc_type == doc_type && document.status == status)
+        .collect::<Vec<_>>();
+    documents.sort_by(|left, right| left.id.cmp(&right.id));
+    documents
+}
+
+fn all_documents_by_type(index: &DocumentIndex, doc_type: DocType) -> Vec<&Document> {
+    let mut documents = index
+        .documents
+        .values()
+        .filter(|document| document.doc_type == doc_type)
         .collect::<Vec<_>>();
     documents.sort_by(|left, right| left.id.cmp(&right.id));
     documents

@@ -11,6 +11,7 @@ struct RootCli {
 fn run_status(
     dir: &tempfile::TempDir,
     doc_id: Option<&str>,
+    all: bool,
 ) -> (anyhow::Result<()>, String, String) {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -18,6 +19,7 @@ fn run_status(
         dir.path(),
         StatusArgs {
             doc_id: doc_id.map(ToOwned::to_owned),
+            all,
         },
         &mut stdout,
         &mut stderr,
@@ -42,6 +44,7 @@ fn test_status_help_describes_command_surface() {
     let help = String::from_utf8(help).expect("help should be utf-8");
 
     assert!(help.contains("specmate status"));
+    assert!(help.contains("--all"));
     assert!(help.contains("design-008"));
     assert!(help.contains("[doc_id]") || help.contains("[DOC_ID]"));
 }
@@ -50,17 +53,27 @@ fn test_status_help_describes_command_surface() {
 fn test_status_dashboard_reports_repository_overview() {
     let dir = temp_repo();
     create_status_repo(dir.path());
+    write_file(
+        dir.path(),
+        "docs/design-docs/draft/design-011-draft-experiment.md",
+        "---\nid: design-011\ntitle: \"Draft Experiment\"\nstatus: draft\n---\n\n# Design\n",
+    );
 
-    let (result, stdout, stderr) = run_status(&dir, None);
+    let (result, stdout, stderr) = run_status(&dir, None, false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
     assert!(stdout.contains("Repository Health"));
     assert!(stdout.contains("Design Overview"));
+    assert!(stdout.contains("  draft"));
+    assert!(stdout.contains("design-011  Draft Experiment  draft"));
     assert!(stdout.contains("Execution Overview"));
     assert!(stdout.contains("Status Totals"));
-    assert!(stdout.contains("design-001"));
     assert!(stdout.contains("design-002"));
+    assert!(stdout.contains("design-010"));
+    assert!(stdout.contains("draft=1"));
+    assert!(!stdout.contains("All Documents"));
+    assert!(stdout.contains("design-001"));
     assert!(stdout.contains("exec-002"));
     assert!(stdout.contains("task-0002"));
 }
@@ -70,7 +83,7 @@ fn test_status_dashboard_sorts_rows_deterministically() {
     let dir = temp_repo();
     create_status_repo(dir.path());
 
-    let (result, stdout, stderr) = run_status(&dir, None);
+    let (result, stdout, stderr) = run_status(&dir, None, false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     let design_002 = stdout.find("design-002").expect("design-002 should exist");
@@ -99,7 +112,7 @@ fn test_status_detail_for_design_doc_reports_relationships() {
     let dir = temp_repo();
     create_status_repo(dir.path());
 
-    let (result, stdout, stderr) = run_status(&dir, Some("design-002"));
+    let (result, stdout, stderr) = run_status(&dir, Some("design-002"), false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     assert!(stdout.contains("Overview"));
@@ -121,7 +134,7 @@ fn test_status_detail_for_task_spec_reports_lineage() {
     let dir = temp_repo();
     create_status_repo(dir.path());
 
-    let (result, stdout, stderr) = run_status(&dir, Some("task-0002"));
+    let (result, stdout, stderr) = run_status(&dir, Some("task-0002"), false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     assert!(stdout.contains("id: task-0002"));
@@ -140,7 +153,7 @@ fn test_status_detail_surfaces_unresolved_references_and_related_warnings() {
         "---\nid: design-011\ntitle: \"Broken Link\"\nstatus: candidate\nprd: prd-999\n---\n\n# Design\n",
     );
 
-    let (result, stdout, stderr) = run_status(&dir, Some("design-011"));
+    let (result, stdout, stderr) = run_status(&dir, Some("design-011"), false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     assert!(stdout.contains("prd: prd-999 (unresolved)"));
@@ -163,7 +176,7 @@ fn test_status_dashboard_surfaces_invalid_repository_issues() {
         "---\nid: exec-011\ntitle: \"Broken Link\"\nstatus: active\ndesign-doc: design-999\n---\n\n# Exec\n",
     );
 
-    let (result, stdout, stderr) = run_status(&dir, None);
+    let (result, stdout, stderr) = run_status(&dir, None, false);
 
     assert!(result.is_ok(), "status failed: {stderr}");
     assert!(stdout.contains("invalid managed entries: 1"));
@@ -178,16 +191,42 @@ fn test_status_rejects_unknown_or_unsupported_lookup_targets() {
     let dir = temp_repo();
     create_status_repo(dir.path());
 
-    let (result, stdout, stderr) = run_status(&dir, Some("design-999"));
+    let (result, stdout, stderr) = run_status(&dir, Some("design-999"), false);
     assert!(result.is_err(), "unknown id should fail");
     assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
     assert!(stderr.contains("[fail] status"));
     assert!(stderr.contains("managed document design-999 does not exist"));
 
-    let (result, stdout, stderr) = run_status(&dir, Some("specmate"));
+    let (result, stdout, stderr) = run_status(&dir, Some("specmate"), false);
     assert!(result.is_err(), "guideline-like slug should fail");
     assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
     assert!(stderr.contains("guideline lookup target specmate is not supported"));
+}
+
+#[test]
+fn test_status_all_lists_historical_and_inactive_documents() {
+    let dir = temp_repo();
+    create_status_repo(dir.path());
+    write_file(
+        dir.path(),
+        "docs/design-docs/draft/design-011-draft-experiment.md",
+        "---\nid: design-011\ntitle: \"Draft Experiment\"\nstatus: draft\n---\n\n# Design\n",
+    );
+    write_file(
+        dir.path(),
+        "docs/design-docs/obsolete/design-012-old-direction.md",
+        "---\nid: design-012\ntitle: \"Old Direction\"\nstatus: obsolete\n---\n\n# Design\n",
+    );
+
+    let (result, stdout, stderr) = run_status(&dir, None, true);
+
+    assert!(result.is_ok(), "status failed: {stderr}");
+    assert!(stdout.contains("All Documents"));
+    assert!(stdout.contains("  DesignDoc"));
+    assert!(stdout.contains("design-011  draft  Draft Experiment"));
+    assert!(stdout.contains("design-012  obsolete  Old Direction"));
+    assert!(stdout.contains("exec-001  completed  Core Rollout"));
+    assert!(stdout.contains("task-0011  cancelled  Cancelled status experiment"));
 }
 
 #[test]
