@@ -4,6 +4,7 @@ use clap::Subcommand;
 pub mod check;
 pub mod init;
 pub mod move_;
+pub mod status;
 
 /// All specmate subcommands.
 #[derive(Debug, Subcommand)]
@@ -14,6 +15,8 @@ pub enum Commands {
     Init(init::InitArgs),
     /// Move a managed document to a new lifecycle status
     Move(move_::MoveArgs),
+    /// Show repository dashboard or document relationship status
+    Status(status::StatusArgs),
 }
 
 /// Dispatch a command to its handler.
@@ -22,5 +25,6 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Check(args) => check::run(args),
         Commands::Init(args) => init::run(args),
         Commands::Move(args) => move_::run(args),
+        Commands::Status(args) => status::run(args),
     }
 }
