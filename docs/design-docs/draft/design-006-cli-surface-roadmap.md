@@ -67,14 +67,15 @@ Repository-facing docs must reflect this boundary clearly:
 | `specmate check` | Run mechanical validation across the document system | `design-004` | implemented |
 | `specmate run` | Execute the coding loop for a Task Spec via ACP | `design-005` | planned |
 | `specmate rerun` | Re-enter the agent loop for a previously run task | `design-005` | planned |
-| `specmate status` | Show system status and doc progress views | Split into a dedicated Design Doc | planned |
+| `specmate status` | Show system status and doc progress views | `design-008` | planned |
 | `specmate update-guides` | Refresh specmate-owned guide files after template or guidance changes | Split into a dedicated Design Doc | planned |
 
 Notes:
 
 - `specmate run` and `specmate rerun` are grouped because they share one loop design.
 - `specmate new` is not yet owned by a dedicated command Design Doc even though `design-003` already defines some shared document-model behavior it depends on.
-- `specmate status` and `specmate update-guides` remain roadmap items only until their own design work starts.
+- `specmate update-guides` remains a roadmap item only until its own design work starts.
+- `specmate status` now has a dedicated command design in `design-008`, but remains planning-only until code lands.
 
 ---
 
