@@ -1,7 +1,7 @@
 ---
 id: design-007
 title: "Move Command"
-status: candidate
+status: implemented
 design-doc: design-001
 guidelines:
   - docs/guidelines/specmate-principles.md

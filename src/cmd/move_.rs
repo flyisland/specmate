@@ -150,14 +150,16 @@ fn plan_move(repo_root: &Path, args: &MoveArgs) -> std::result::Result<MovePlan,
     }
 
     let to_status = parse_target_status(document.doc_type, &args.to_status).ok_or_else(|| {
+        let allowed = allowed_target_statuses(document.doc_type, document.status).join(", ");
         MoveFailure::new(
             Some(document.path.clone()),
             format!(
-                "status {} is not valid for {}",
+                "status {} is not valid for {} currently in status {}",
                 args.to_status.trim(),
-                document.doc_type
+                document.doc_type,
+                document.status
             ),
-            "Choose a target status from the lifecycle for this document type.",
+            format!("Choose one of: {allowed}."),
         )
     })?;
 
@@ -292,6 +294,24 @@ fn parse_target_status(doc_type: DocType, raw: &str) -> Option<Status> {
         (DocType::TaskSpec, "completed") => Some(Status::Completed),
         (DocType::TaskSpec, "cancelled") => Some(Status::Cancelled),
         _ => None,
+    }
+}
+
+fn allowed_target_statuses(doc_type: DocType, from_status: Status) -> &'static [&'static str] {
+    match (doc_type, from_status) {
+        (DocType::Prd, Status::Draft) => &["approved", "obsolete"],
+        (DocType::Prd, Status::Approved) => &["obsolete"],
+        (DocType::DesignDoc, Status::Draft) => &["candidate"],
+        (DocType::DesignDoc, Status::Candidate) => &["implemented", "obsolete"],
+        (DocType::DesignDoc, Status::Implemented) => &["obsolete"],
+        (DocType::DesignPatch, Status::Draft) => &["candidate", "obsolete"],
+        (DocType::DesignPatch, Status::Candidate) => &["implemented", "obsolete"],
+        (DocType::DesignPatch, Status::Implemented) => &["obsolete:merged"],
+        (DocType::ExecPlan, Status::Draft) => &["active"],
+        (DocType::ExecPlan, Status::Active) => &["completed", "abandoned"],
+        (DocType::TaskSpec, Status::Draft) => &["active", "cancelled"],
+        (DocType::TaskSpec, Status::Active) => &["completed", "cancelled"],
+        _ => &[],
     }
 }
 

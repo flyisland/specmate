@@ -1,7 +1,7 @@
 ---
 id: design-006
 title: "CLI Surface Roadmap"
-status: candidate
+status: draft
 design-doc: design-001
 guidelines:
   - docs/guidelines/specmate-principles.md

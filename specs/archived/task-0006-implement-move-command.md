@@ -1,7 +1,7 @@
 ---
 id: task-0006
 title: "Implement move command"
-status: active
+status: completed
 guidelines:
   - docs/guidelines/specmate-principles.md
   - docs/guidelines/cli-conventions.md

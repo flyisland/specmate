@@ -234,6 +234,12 @@ fn test_move_rejects_invalid_targets_and_illegal_transitions() {
     assert!(stderr.contains("does not support status transitions"));
     assert!(stderr.contains("Choose a PRD, Design Doc, Design Patch, Exec Plan, or Task Spec."));
 
+    let (result, stdout, stderr) = run_move(&dir, args("task-0001", "xxx", false));
+    assert!(result.is_err(), "invalid target status should fail");
+    assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
+    assert!(stderr.contains("status xxx is not valid for TaskSpec currently in status active"));
+    assert!(stderr.contains("Choose one of: completed, cancelled."));
+
     let (result, stdout, stderr) = run_move(&dir, args("task-0001", "draft", false));
     assert!(result.is_err(), "illegal move should fail");
     assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
