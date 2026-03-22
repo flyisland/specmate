@@ -1,8 +1,9 @@
 ---
-id: design-004-patch-01-check-refs-steady-state-links
+id: design-004-patch-01
 title: "Check Refs Steady-State Links"
-status: draft
+status: obsolete:merged
 parent: design-004
+merged-into: design-004
 ---
 
 # Check Refs Steady-State Links

@@ -101,14 +101,26 @@ actual file location.
 
 ### check refs
 
-Validates that no active document references an obsolete or archived document.
+Validates steady-state repository reference validity.
 
 **Rules:**
 - A document with status `candidate` or `implemented` (DesignDoc) must not
   reference a `prd` that is `obsolete`
-- A document with status `active` or `completed` (ExecPlan, TaskSpec) must
-  not reference a `design-doc` or `exec-plan` that is `obsolete`, `abandoned`,
-  or `obsolete:merged`
+- `check refs` uses the shared document-model rules for reference validity and
+  must preserve the live-vs-historical distinction
+- A live descendant referencing a parent in a forbidden status is a violation
+- A historical descendant may retain a reference to an obsolete or abandoned
+  parent if the target exists and the relationship type is still correct
+- `check refs` must not fail solely because a transition-time gate would block
+  a future status change
+
+**Examples:**
+- an `active` Task Spec referencing an `abandoned` Exec Plan fails
+- a `completed` Task Spec referencing an `abandoned` Exec Plan passes
+- an `active` Exec Plan referencing an `obsolete` Design Doc fails
+- a `completed` Exec Plan referencing an `obsolete` Design Doc passes
+- an `implemented` Design Doc with later bug-fix work linked through a new
+  draft or active Exec Plan / Task Spec remains valid
 
 ### check boundaries `<task-id>`
 
