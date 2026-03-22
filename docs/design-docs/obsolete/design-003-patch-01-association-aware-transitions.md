@@ -1,8 +1,9 @@
 ---
-id: design-003-patch-01-association-aware-transitions
+id: design-003-patch-01
 title: "Association-Aware Transitions"
-status: draft
+status: obsolete:merged
 parent: design-003
+merged-into: design-003
 ---
 
 # Association-Aware Transitions
