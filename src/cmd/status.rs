@@ -4,10 +4,11 @@ use crate::doc::{
     ValidationViolation,
 };
 use anyhow::{bail, Context, Result};
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 /// Arguments for `specmate status`.
@@ -21,6 +22,20 @@ pub struct StatusArgs {
     /// Expand the dashboard to list all lifecycle-managed documents
     #[arg(long)]
     pub all: bool,
+    /// Control ANSI color output
+    #[arg(long, value_enum, default_value_t = ColorWhen::Auto)]
+    pub color: ColorWhen,
+}
+
+/// ANSI color policy for `specmate status`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ColorWhen {
+    /// Enable color only when writing to a TTY.
+    Auto,
+    /// Always emit ANSI color sequences.
+    Always,
+    /// Never emit ANSI color sequences.
+    Never,
 }
 
 #[derive(Debug)]
@@ -53,17 +68,24 @@ struct ReferenceRow {
     resolved: Option<AssociatedDocument>,
 }
 
+#[derive(Copy, Clone, Debug)]
+struct Palette {
+    enabled: bool,
+}
+
 /// Run `specmate status`.
 pub fn run(args: StatusArgs) -> Result<()> {
     let start_dir = std::env::current_dir().context("reading current working directory")?;
     let mut stdout = std::io::stdout();
     let mut stderr = std::io::stderr();
-    run_in_repo(&start_dir, args, &mut stdout, &mut stderr)
+    let palette = Palette::new(args.color, stdout.is_terminal());
+    run_in_repo(&start_dir, args, palette, &mut stdout, &mut stderr)
 }
 
 fn run_in_repo<W: Write, E: Write>(
     start_dir: &Path,
     args: StatusArgs,
+    palette: Palette,
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<()> {
@@ -90,14 +112,14 @@ fn run_in_repo<W: Write, E: Write>(
     let violations = validate_index(&index);
 
     let output = match args.doc_id.as_deref() {
-        Some(doc_id) => match render_detail(&index, &violations, doc_id) {
+        Some(doc_id) => match render_detail(&index, &violations, doc_id, palette) {
             Ok(output) => output,
             Err(failure) => {
                 render_failure(stderr, &repo_root, &failure)?;
                 bail!("specmate status failed");
             }
         },
-        None => render_dashboard(&index, &violations, args.all),
+        None => render_dashboard(&index, &violations, args.all, palette),
     };
 
     write!(stdout, "{output}")?;
@@ -108,9 +130,11 @@ fn render_dashboard(
     index: &DocumentIndex,
     violations: &[ValidationViolation],
     show_all: bool,
+    palette: Palette,
 ) -> String {
     let mut output = String::new();
-    output.push_str("Repository Health\n");
+    output.push_str(&palette.header("Repository Health"));
+    output.push('\n');
     output.push_str(&format!(
         "  valid managed documents: {}\n",
         index.documents.len()
@@ -129,18 +153,26 @@ fn render_dashboard(
         output.push_str("  issue preview\n");
         for preview in previews.iter().take(4) {
             output.push_str(&format!("    {}\n", preview.path));
-            output.push_str(&format!("    {}\n", preview.message));
+            output.push_str(&format!("    {}\n", palette.warning(&preview.message)));
         }
     }
 
     output.push('\n');
-    output.push_str("Design Overview\n");
-    render_design_bucket(&mut output, index, Status::Draft, "draft");
-    render_design_bucket(&mut output, index, Status::Implemented, "implemented");
-    render_design_bucket(&mut output, index, Status::Candidate, "candidate");
+    output.push_str(&palette.header("Design Overview"));
+    output.push('\n');
+    render_design_bucket(&mut output, index, Status::Draft, "draft", palette);
+    render_design_bucket(
+        &mut output,
+        index,
+        Status::Implemented,
+        "implemented",
+        palette,
+    );
+    render_design_bucket(&mut output, index, Status::Candidate, "candidate", palette);
 
     output.push('\n');
-    output.push_str("Execution Overview\n");
+    output.push_str(&palette.header("Execution Overview"));
+    output.push('\n');
     output.push_str("  active exec plans\n");
     let active_execs = documents_by_type_and_status(index, DocType::ExecPlan, Status::Active);
     if active_execs.is_empty() {
@@ -211,12 +243,14 @@ fn render_dashboard(
     ));
 
     output.push('\n');
-    output.push_str("Status Totals\n");
+    output.push_str(&palette.header("Status Totals"));
+    output.push('\n');
     render_status_totals(
         &mut output,
         index,
         DocType::Prd,
         &[Status::Draft, Status::Approved, Status::Obsolete],
+        palette,
     );
     render_status_totals(
         &mut output,
@@ -228,6 +262,7 @@ fn render_dashboard(
             Status::Implemented,
             Status::Obsolete,
         ],
+        palette,
     );
     render_status_totals(
         &mut output,
@@ -240,6 +275,7 @@ fn render_dashboard(
             Status::Obsolete,
             Status::ObsoleteMerged,
         ],
+        palette,
     );
     render_status_totals(
         &mut output,
@@ -251,6 +287,7 @@ fn render_dashboard(
             Status::Completed,
             Status::Abandoned,
         ],
+        palette,
     );
     render_status_totals(
         &mut output,
@@ -262,16 +299,18 @@ fn render_dashboard(
             Status::Completed,
             Status::Cancelled,
         ],
+        palette,
     );
 
     if show_all {
         output.push('\n');
-        output.push_str("All Documents\n");
-        render_all_documents_bucket(&mut output, index, DocType::Prd);
-        render_all_documents_bucket(&mut output, index, DocType::DesignDoc);
-        render_all_documents_bucket(&mut output, index, DocType::DesignPatch);
-        render_all_documents_bucket(&mut output, index, DocType::ExecPlan);
-        render_all_documents_bucket(&mut output, index, DocType::TaskSpec);
+        output.push_str(&palette.header("All Documents"));
+        output.push('\n');
+        render_all_documents_bucket(&mut output, index, DocType::Prd, palette);
+        render_all_documents_bucket(&mut output, index, DocType::DesignDoc, palette);
+        render_all_documents_bucket(&mut output, index, DocType::DesignPatch, palette);
+        render_all_documents_bucket(&mut output, index, DocType::ExecPlan, palette);
+        render_all_documents_bucket(&mut output, index, DocType::TaskSpec, palette);
     }
 
     output
@@ -281,6 +320,7 @@ fn render_detail(
     index: &DocumentIndex,
     violations: &[ValidationViolation],
     doc_id: &str,
+    palette: Palette,
 ) -> std::result::Result<String, StatusFailure> {
     let wanted = doc_id.trim();
     let document = match index
@@ -314,14 +354,15 @@ fn render_detail(
     }
 
     let mut output = String::new();
-    output.push_str("Overview\n");
+    output.push_str(&palette.header("Overview"));
+    output.push('\n');
     output.push_str(&format!("  id: {}\n", document.id));
     output.push_str(&format!(
         "  title: {}\n",
         document.title.as_deref().unwrap_or("none")
     ));
     output.push_str(&format!("  type: {}\n", document.doc_type));
-    output.push_str(&format!("  status: {}\n", document.status));
+    output.push_str(&format!("  status: {}\n", palette.status(document.status)));
     output.push_str(&format!(
         "  path: {}\n",
         make_relative(index, &document.path)
@@ -345,7 +386,8 @@ fn render_detail(
     ));
 
     output.push('\n');
-    output.push_str("Upstream References\n");
+    output.push_str(&palette.header("Upstream References"));
+    output.push('\n');
     let references = reference_rows(index, document);
     if references.is_empty() {
         output.push_str("  none\n");
@@ -354,7 +396,9 @@ fn render_detail(
             match &reference.resolved {
                 Some(target) => output.push_str(&format!(
                     "  {}: {} ({})\n",
-                    reference.label, reference.raw_target, target.status
+                    reference.label,
+                    reference.raw_target,
+                    palette.status(target.status)
                 )),
                 None => output.push_str(&format!(
                     "  {}: {} (unresolved)\n",
@@ -365,7 +409,8 @@ fn render_detail(
     }
 
     output.push('\n');
-    output.push_str("Downstream Associations\n");
+    output.push_str(&palette.header("Downstream Associations"));
+    output.push('\n');
     let summaries = association_summaries(index, document);
     if summaries.is_empty() {
         output.push_str("  none\n");
@@ -376,7 +421,11 @@ fn render_detail(
                 output.push_str("    none\n");
             } else {
                 for related in sorted_related(&summary.related) {
-                    output.push_str(&format!("    {} ({})\n", related.id, related.status));
+                    output.push_str(&format!(
+                        "    {} ({})\n",
+                        related.id,
+                        palette.status(related.status)
+                    ));
                 }
                 output.push_str(&format!(
                     "    all terminal: {}\n",
@@ -387,19 +436,24 @@ fn render_detail(
     }
 
     output.push('\n');
-    output.push_str("Derived Chain Summary\n");
+    output.push_str(&palette.header("Derived Chain Summary"));
+    output.push('\n');
     render_derived_summary(&mut output, index, document);
 
     output.push('\n');
-    output.push_str("Related Repository Warnings\n");
+    output.push_str(&palette.header("Related Repository Warnings"));
+    output.push('\n');
     let warnings = related_warnings(index, violations, document);
     if warnings.is_empty() {
         output.push_str("  No related warnings.\n");
     } else {
         for warning in warnings {
             output.push_str(&format!("  {}\n", warning.path));
-            output.push_str(&format!("  {}\n", warning.message));
-            output.push_str("  -> Repair the affected repository reference or managed document.\n");
+            output.push_str(&format!("  {}\n", palette.warning(&warning.message)));
+            output.push_str(&format!(
+                "  -> {}\n",
+                palette.warning("Repair the affected repository reference or managed document.")
+            ));
         }
     }
 
@@ -485,8 +539,14 @@ fn render_derived_summary(output: &mut String, index: &DocumentIndex, document: 
     }
 }
 
-fn render_design_bucket(output: &mut String, index: &DocumentIndex, status: Status, label: &str) {
-    output.push_str(&format!("  {label}\n"));
+fn render_design_bucket(
+    output: &mut String,
+    index: &DocumentIndex,
+    status: Status,
+    label: &str,
+    palette: Palette,
+) {
+    output.push_str(&format!("  {}\n", palette.status_label(label, status)));
     let designs = documents_by_type_and_status(index, DocType::DesignDoc, status);
     if designs.is_empty() {
         output.push_str("    none\n");
@@ -499,7 +559,7 @@ fn render_design_bucket(output: &mut String, index: &DocumentIndex, status: Stat
             "    {}  {}  {}  {}\n",
             design.id,
             title_for(design),
-            design.status,
+            palette.status(design.status),
             make_relative(index, &design.path)
         ));
         output.push_str(&format!(
@@ -516,6 +576,7 @@ fn render_status_totals(
     index: &DocumentIndex,
     doc_type: DocType,
     statuses: &[Status],
+    palette: Palette,
 ) {
     let counts = count_by_status(index, doc_type, statuses);
     let parts = statuses
@@ -523,7 +584,7 @@ fn render_status_totals(
         .map(|status| {
             format!(
                 "{}={}",
-                status.as_str(),
+                palette.status(*status),
                 counts.get(status).copied().unwrap_or(0)
             )
         })
@@ -532,7 +593,12 @@ fn render_status_totals(
     output.push_str(&format!("  {:<11} {}\n", doc_type.as_str(), parts));
 }
 
-fn render_all_documents_bucket(output: &mut String, index: &DocumentIndex, doc_type: DocType) {
+fn render_all_documents_bucket(
+    output: &mut String,
+    index: &DocumentIndex,
+    doc_type: DocType,
+    palette: Palette,
+) {
     output.push_str(&format!("  {}\n", doc_type.as_str()));
     let documents = all_documents_by_type(index, doc_type);
     if documents.is_empty() {
@@ -544,7 +610,7 @@ fn render_all_documents_bucket(output: &mut String, index: &DocumentIndex, doc_t
         output.push_str(&format!(
             "    {}  {}  {}  {}\n",
             document.id,
-            document.status,
+            palette.status(document.status),
             title_for(document),
             make_relative(index, &document.path)
         ));
@@ -913,6 +979,53 @@ fn render_failure<E: Write>(
     writeln!(stderr, "       {}", failure.message)?;
     writeln!(stderr, "       -> {}", failure.fix)?;
     Ok(())
+}
+
+impl Palette {
+    fn new(color_when: ColorWhen, stdout_is_tty: bool) -> Self {
+        let enabled = match color_when {
+            ColorWhen::Always => true,
+            ColorWhen::Never => false,
+            ColorWhen::Auto => stdout_is_tty && env::var_os("NO_COLOR").is_none(),
+        };
+        Self { enabled }
+    }
+
+    fn header(self, text: &str) -> String {
+        self.wrap("1", text)
+    }
+
+    fn warning(self, text: &str) -> String {
+        self.wrap("31", text)
+    }
+
+    fn status(self, status: Status) -> String {
+        self.wrap(self.status_code(status), status.as_str())
+    }
+
+    fn status_label(self, label: &str, status: Status) -> String {
+        self.wrap(self.status_code(status), label)
+    }
+
+    fn status_code(self, status: Status) -> &'static str {
+        match status {
+            Status::Draft => "33",
+            Status::Candidate => "34",
+            Status::Implemented | Status::Approved | Status::Completed => "32",
+            Status::Active => "36",
+            Status::Obsolete | Status::ObsoleteMerged | Status::Abandoned | Status::Cancelled => {
+                "2;31"
+            }
+        }
+    }
+
+    fn wrap(self, code: &str, text: &str) -> String {
+        if self.enabled {
+            format!("\u{1b}[{code}m{text}\u{1b}[0m")
+        } else {
+            text.to_string()
+        }
+    }
 }
 
 fn find_repo_root(start_dir: &Path) -> std::result::Result<PathBuf, StatusFailure> {

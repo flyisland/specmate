@@ -53,7 +53,7 @@ readable in terminals and by agents without requiring TUI widgets.
 ## 2. Command surface
 
 ```bash
-specmate status [doc-id] [--all]
+specmate status [doc-id] [--all] [--color <when>]
 ```
 
 Examples:
@@ -61,6 +61,7 @@ Examples:
 ```bash
 specmate status
 specmate status --all
+specmate status --color always
 specmate status design-008
 specmate status task-0005
 ```
@@ -72,6 +73,11 @@ Semantics:
   all-documents listing across statuses
 - `specmate status <doc-id>` renders a focused detail view for one managed
   document
+
+Options:
+
+- `--all`: append the exhaustive all-documents view to the dashboard
+- `--color auto|always|never`: control ANSI color output; default is `auto`
 
 Argument rules:
 
@@ -114,6 +120,9 @@ The command may reuse these shared document-model facilities:
 
 The command must not duplicate filename parsing, status parsing, or
 relationship rules in its own module.
+
+Color handling is a presentation concern in the command layer. It must not
+change the underlying text content, section order, or repository facts.
 
 When a specific `doc-id` is requested, the command resolves it against the
 loaded valid document index by canonical ID equality. It must not attempt
@@ -373,6 +382,38 @@ Deterministic ordering rules:
 The command may use aligned columns where helpful, but alignment is a
 presentation detail rather than a contract.
 
+### 6.1 Color rules
+
+Color is optional enhancement only. It must never be the sole carrier of
+meaning.
+
+Requirements:
+
+- every colored token must still include the full underlying text such as
+  `draft`, `candidate`, or `implemented`
+- `--color auto` enables color only when stdout is a TTY
+- `--color never` disables ANSI color unconditionally
+- `--color always` emits ANSI color even when stdout is not a TTY
+- `NO_COLOR` disables color when `--color auto` is in effect
+
+Recommended status palette:
+
+- `draft`: yellow
+- `candidate`: blue
+- `implemented`: green
+- `approved`: green
+- `active`: cyan
+- `completed`: green
+- `obsolete`, `obsolete:merged`, `abandoned`, `cancelled`: dim red or dim gray
+
+Recommended structural palette:
+
+- section headers: bold
+- warning lines: red or yellow
+
+The exact palette may evolve, but status-to-color mapping must remain stable
+enough that human users can build recognition over time.
+
 The output is intentionally human-readable, not a stable machine API. A future
 `--json` mode may be added later, but it is out of scope for v1.
 
@@ -384,6 +425,12 @@ verbose.
 
 `--all` is the explicit opt-in escape hatch for users who want the exhaustive
 inventory instead of the compact default dashboard.
+
+Agent-readability constraint:
+
+- the no-color rendering remains the canonical semantic form
+- any agent or script consuming output must still receive complete meaning when
+  color is disabled or stripped
 
 ---
 
