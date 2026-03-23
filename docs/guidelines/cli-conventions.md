@@ -54,6 +54,18 @@ with an ownership tag:
 Tags are left-aligned in a fixed-width column. Actions are left-aligned in a
 fixed-width column. Paths follow without truncation.
 
+Write commands must use the same ownership-tagged format for real applied
+operations, not only for `--dry-run`. A successful write command must not
+complete silently if it changed repository state.
+
+Examples:
+
+- `specmate init --merge` prints the directories and files it created,
+  overwrote, or skipped
+- `specmate move` prints the update and move operations it applied
+- future write commands should keep their applied-output format as close as
+  practical to their `--dry-run` output
+
 ### Check output
 
 Each check result is prefixed with a status indicator:

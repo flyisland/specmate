@@ -116,6 +116,29 @@ additional documentation.
 
 ---
 
+## Write explicitly
+
+specmate prefers explicit write reporting over silent success. When a command
+creates, updates, overwrites, skips, deletes, or moves repository state, it
+must report what it actually did.
+
+This principle exists because specmate is not just a file generator. It is a
+stateful tool that maintains a managed document system. Users and agents must
+be able to see which changes were applied without inferring state from `git diff`
+or re-scanning the repository afterward.
+
+At minimum, a successful write command must:
+
+1. Print the concrete operations it applied
+2. Distinguish action types such as create, update, overwrite, skip, move, or delete
+3. Use stable, machine-readable CLI output that an agent can parse reliably
+4. Keep applied output aligned with `--dry-run` output whenever practical
+
+This rule applies to commands such as `specmate init --merge`, `specmate move`,
+and any future command that mutates managed repository state.
+
+---
+
 ## Document integrity
 
 specmate-managed documents are a shared operational contract. The repository's
