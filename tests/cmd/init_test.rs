@@ -47,7 +47,18 @@ fn test_init_creates_full_directory_structure() {
     let (result, stdout, stderr) = run_init(&dir, args(None, false, false));
 
     assert!(result.is_ok(), "init failed: {stderr}");
-    assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
+    assert!(
+        stdout.contains("[dir]"),
+        "expected directory output: {stdout}"
+    );
+    assert!(
+        stdout.contains(".specmate/"),
+        "expected created directory output: {stdout}"
+    );
+    assert!(
+        stdout.contains("[user]") && stdout.contains("AGENTS.md"),
+        "expected file output: {stdout}"
+    );
     assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
 
     for relative in [
@@ -236,9 +247,17 @@ fn test_init_merge_creates_missing_structure() {
     fs::create_dir_all(dir.path().join("specs")).unwrap();
     fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
 
-    let (result, _, stderr) = run_init(&dir, args(None, false, true));
+    let (result, stdout, stderr) = run_init(&dir, args(None, false, true));
 
     assert!(result.is_ok(), "merge failed: {stderr}");
+    assert!(
+        stdout.contains("docs/guidelines/"),
+        "expected created directory output: {stdout}"
+    );
+    assert!(
+        stdout.contains(".specmate/config.yaml  (already exists)"),
+        "expected skip output for existing user file: {stdout}"
+    );
     assert_exists(&dir.path().join("docs/guidelines"));
     assert_exists(&dir.path().join("docs/exec-plans/archived"));
     assert_exists(&dir.path().join("specs/active/README.md"));

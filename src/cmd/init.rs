@@ -202,6 +202,7 @@ fn run_in_repo<W: Write, E: Write>(
         write_dry_run(stdout, &operations)?;
     } else {
         apply_operations(repo_root, &operations)?;
+        write_applied(stdout, &operations)?;
     }
 
     Ok(())
@@ -365,6 +366,13 @@ fn write_dry_run<W: Write>(stdout: &mut W, operations: &[Operation]) -> Result<(
     }
     writeln!(stdout)?;
     writeln!(stdout, "Run without --dry-run to apply.")?;
+    Ok(())
+}
+
+fn write_applied<W: Write>(stdout: &mut W, operations: &[Operation]) -> Result<()> {
+    for operation in operations {
+        writeln!(stdout, "{}", format_operation(operation))?;
+    }
     Ok(())
 }
 
