@@ -145,6 +145,7 @@ treated as `active` when loaded.
 | Field | Type | Meaning |
 |---|---|---|
 | `exec-plan` | string | optional, linked Exec Plan id |
+| `design-doc` | string | optional, linked Design Doc id for a standalone task |
 | `guidelines` | string[] | guideline files injected at run time |
 | `boundaries.allowed` | string[] | glob patterns — files agent may modify |
 | `boundaries.forbidden_patterns` | string[] | glob patterns — files agent must never touch |
@@ -177,6 +178,18 @@ Optional. Links the Task Spec to its parent Exec Plan.
 
 Tasks may omit `exec-plan` when they are intentionally standalone and are not
 part of a broader execution plan.
+
+### `design-doc`
+
+Optional. Links the Task Spec directly to a Design Doc when the task is
+standalone and does not belong to an Exec Plan.
+
+- Value must be a valid Design Doc id such as `design-001`
+- If present, it must point to an existing Design Doc document
+- It must not be used together with `exec-plan` on the same Task Spec
+
+Tasks may omit `design-doc` when they are intentionally standalone and do not
+need a recorded design upstream.
 
 ### `guidelines`
 
@@ -402,9 +415,10 @@ field that failed, and the expected value.
 | Directory matches status | all managed docs | file location matches directory resolver output |
 | merged-into present | DesignPatch with `obsolete:merged` | `merged-into` field exists and points to an existing doc |
 | parent present | DesignPatch | `parent` field exists and points to an existing Design Doc |
-| design-doc valid when present | ExecPlan | if `design-doc` exists, it points to an existing Design Doc |
+| design-doc valid when present | ExecPlan, TaskSpec | if `design-doc` exists, it points to an existing Design Doc |
 | superseded-by present | DesignDoc with `obsolete` via Flow B | `superseded-by` field exists and points to an existing doc |
 | No stale live refs | live Design Docs, Exec Plans, Task Specs | live references (`prd`, `design-doc`, `exec-plan`) must not point to obsolete or abandoned parents; historical descendants may retain those links if the target still exists and has the correct type |
+| One task upstream path | TaskSpec | a Task Spec must not declare both `exec-plan` and `design-doc` |
 | Unique IDs | per DocType | no two documents of the same type share an ID |
 | CC ids unique | TaskSpec | no two completion criteria share an `id` within a spec |
 | Guideline files exist | TaskSpec | each `guidelines` path resolves to an existing Guideline |
@@ -425,6 +439,7 @@ Supported direct associations:
 - PRD ↔ Design Doc via `DesignDoc.prd`
 - Design Doc ↔ Design Patch via `DesignPatch.parent`
 - Design Doc ↔ Exec Plan via `ExecPlan.design-doc`
+- Design Doc ↔ Task Spec via `TaskSpec.design-doc`
 - Exec Plan ↔ Task Spec via `TaskSpec.exec-plan`
 
 For each association set, the model must support aggregate predicates that are

@@ -159,8 +159,8 @@ contracts and roadmap anchors.
 It must list at least:
 
 - `draft` Design Docs
-- `implemented` Design Docs
 - `candidate` Design Docs
+- `implemented` Design Docs
 
 Each listed design row must include:
 
@@ -170,9 +170,12 @@ Each listed design row must include:
 - repository-relative path
 - linked PRD id when present
 - count of linked Exec Plans
-- count of linked Task Specs reachable through those Exec Plans
+- count of directly linked Task Specs
+- count of total linked Task Specs across both direct and Exec Plan-linked
+  paths
 
 Rows must be sorted by canonical design id ascending within each status group.
+Status groups themselves must follow lifecycle order.
 
 This allows a user to answer:
 
@@ -208,7 +211,7 @@ Each active Task Spec row must include:
 - doc id
 - title
 - linked Exec Plan id when present
-- linked Design Doc id when derivable through the Exec Plan
+- otherwise linked Design Doc id when present
 
 Rows must be sorted by canonical id ascending.
 
@@ -295,14 +298,16 @@ If no upstream references exist, the command should print `none`.
 
 ### 5.3 Downstream associations
 
-This section lists direct dependents discovered through the shared
-association-summary model.
+This section lists the most relevant downstream dependents for the requested
+document.
 
 Supported association families:
 
 - PRD → Design Docs
 - Design Doc → Design Patches
 - Design Doc → Exec Plans
+- Design Doc → Task Specs via linked Exec Plans
+- Design Doc → Task Specs (direct)
 - Exec Plan → Task Specs
 
 Each family must show:
@@ -310,7 +315,17 @@ Each family must show:
 - association kind
 - related document ids
 - current statuses of those related documents
-- whether all related documents are terminal for that family
+
+For `DesignDoc` detail views, the command must show both task paths
+separately:
+
+- Task Specs linked through the design's Exec Plans
+- Task Specs linked directly to the design through `design-doc`
+
+This split is required even though only the direct task path comes from the
+shared direct-association summary model. The detail view is allowed to enrich
+the presentation with one additional derived downstream family so users can see
+all implementation work related to a design in one place.
 
 ### 5.4 Derived chain summary
 
@@ -321,9 +336,11 @@ manually.
 Required derived summaries:
 
 - PRD: total linked Design Docs, Exec Plans, and Task Specs
-- Design Doc: total linked patches, Exec Plans, and Task Specs
+- Design Doc: total linked patches, Exec Plans, direct Task Specs, and total
+  Task Specs across both direct and Exec Plan-linked paths
 - Exec Plan: linked Task Spec totals by status
-- Task Spec: linked Exec Plan and linked Design Doc / PRD lineage when present
+- Task Spec: linked Exec Plan lineage when present, otherwise direct linked
+  Design Doc lineage when present
 - Design Patch: parent design lineage and merged / superseded target facts when
   present
 - ProjectSpec / OrgSpec: no derived chain summary beyond `none`
@@ -368,6 +385,8 @@ Formatting rules:
 - section headers are stable and human-readable
 - repository paths are shown relative to repo root
 - status words use canonical lowercase spellings from frontmatter
+- rendered doc ids should be visually distinguishable from surrounding prose
+  when color is enabled
 - empty sections print `none` rather than disappearing silently
 - list ordering is deterministic across runs
 
@@ -391,6 +410,9 @@ Requirements:
 
 - every colored token must still include the full underlying text such as
   `draft`, `candidate`, or `implemented`
+- every rendered canonical status token should use the same color mapping,
+  whether it appears as a standalone field value, a bucket label, or a
+  `status=count` summary entry
 - `--color auto` enables color only when stdout is a TTY
 - `--color never` disables ANSI color unconditionally
 - `--color always` emits ANSI color even when stdout is not a TTY
@@ -456,16 +478,19 @@ Repository Health
     exec-plan exec-999 does not exist
 
 Design Overview
+  draft
+    design-011  Draft Experiment  draft      docs/design-docs/draft/design-011-draft-experiment.md
+      prd: none  exec-plans: 0  direct-task-specs: 0  task-specs: 0
+  candidate
+    design-005  Agent Loop       candidate  docs/design-docs/candidate/design-005-agent-loop.md
+      prd: none  exec-plans: 1  direct-task-specs: 0  task-specs: 2
+    design-008  Status Command   candidate  docs/design-docs/candidate/design-008-status-command.md
+      prd: none  exec-plans: 0  direct-task-specs: 0  task-specs: 0
   implemented
     design-001  Check Engine     implemented  docs/design-docs/implemented/design-001-check-engine.md
-      prd: prd-001  exec-plans: 2  task-specs: 5
+      prd: prd-001  exec-plans: 2  direct-task-specs: 0  task-specs: 5
     design-007  Move Command     implemented  docs/design-docs/implemented/design-007-move-command.md
-      prd: none     exec-plans: 0  task-specs: 0
-  candidate
-    design-005  Agent Loop       candidate    docs/design-docs/candidate/design-005-agent-loop.md
-      prd: none     exec-plans: 1  task-specs: 2
-    design-008  Status Command   candidate    docs/design-docs/candidate/design-008-status-command.md
-      prd: none     exec-plans: 0  task-specs: 0
+      prd: none  exec-plans: 0  direct-task-specs: 0  task-specs: 0
 
 Execution Overview
   active exec plans
@@ -510,12 +535,18 @@ Downstream Associations
   exec plans
     exec-003 (active)
     exec-004 (completed)
-    all terminal: no
+  task specs via exec plans
+    task-0005 (active)
+    task-0006 (completed)
+    task-0007 (completed)
+  direct task specs
+    none
 
 Derived Chain Summary
   patches: 0
   exec plans: 2
-  task specs: active=1 completed=3 cancelled=0
+  direct task specs: 0
+  task specs: draft=0 active=1 completed=2 cancelled=0
 
 Related Repository Warnings
   docs/exec-plans/active/exec-003-build-agent-loop.md
@@ -539,8 +570,6 @@ Overview
 
 Upstream References
   exec-plan: exec-003 (active)
-  linked design-doc via exec-plan: design-005 (candidate)
-  linked prd via design-doc: none
 
 Downstream Associations
   none

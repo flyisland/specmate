@@ -73,6 +73,8 @@ struct Palette {
     enabled: bool,
 }
 
+const ID_COLOR: &str = "1";
+
 /// Run `specmate status`.
 pub fn run(args: StatusArgs) -> Result<()> {
     let start_dir = std::env::current_dir().context("reading current working directory")?;
@@ -161,6 +163,7 @@ fn render_dashboard(
     output.push_str(&palette.header("Design Overview"));
     output.push('\n');
     render_design_bucket(&mut output, index, Status::Draft, "draft", palette);
+    render_design_bucket(&mut output, index, Status::Candidate, "candidate", palette);
     render_design_bucket(
         &mut output,
         index,
@@ -168,12 +171,14 @@ fn render_dashboard(
         "implemented",
         palette,
     );
-    render_design_bucket(&mut output, index, Status::Candidate, "candidate", palette);
 
     output.push('\n');
     output.push_str(&palette.header("Execution Overview"));
     output.push('\n');
-    output.push_str("  active exec plans\n");
+    output.push_str(&format!(
+        "  {} exec plans\n",
+        palette.status(Status::Active)
+    ));
     let active_execs = documents_by_type_and_status(index, DocType::ExecPlan, Status::Active);
     if active_execs.is_empty() {
         output.push_str("    none\n");
@@ -181,29 +186,53 @@ fn render_dashboard(
         for exec in active_execs {
             let counts = task_status_counts(index, &exec.id.as_string());
             output.push_str(&format!(
-                "    {}  {}  design-doc: {}  tasks: draft={} active={} completed={} cancelled={}\n",
-                exec.id,
+                "    {}  {}  design-doc: {}  tasks: {}\n",
+                palette.doc_id(&exec.id.to_string()),
                 title_for(exec),
-                optional_field(exec.frontmatter.design_doc.as_deref()),
-                counts.get(&Status::Draft).copied().unwrap_or(0),
-                counts.get(&Status::Active).copied().unwrap_or(0),
-                counts.get(&Status::Completed).copied().unwrap_or(0),
-                counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                palette.optional_doc_id(exec.frontmatter.design_doc.as_deref()),
+                render_status_counts(
+                    palette,
+                    &[
+                        (
+                            Status::Draft,
+                            counts.get(&Status::Draft).copied().unwrap_or(0)
+                        ),
+                        (
+                            Status::Active,
+                            counts.get(&Status::Active).copied().unwrap_or(0)
+                        ),
+                        (
+                            Status::Completed,
+                            counts.get(&Status::Completed).copied().unwrap_or(0),
+                        ),
+                        (
+                            Status::Cancelled,
+                            counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                        ),
+                    ]
+                ),
             ));
         }
     }
 
-    output.push_str("  active task specs\n");
+    output.push_str(&format!(
+        "  {} task specs\n",
+        palette.status(Status::Active)
+    ));
     let active_tasks = documents_by_type_and_status(index, DocType::TaskSpec, Status::Active);
     if active_tasks.is_empty() {
         output.push_str("    none\n");
     } else {
         for task in active_tasks {
-            output.push_str(&format!("    {}  {}\n", task.id, title_for(task)));
+            output.push_str(&format!(
+                "    {}  {}\n",
+                palette.doc_id(&task.id.to_string()),
+                title_for(task)
+            ));
             output.push_str(&format!(
                 "      exec-plan: {}  design-doc: {}\n",
-                optional_field(task.frontmatter.exec_plan.as_deref()),
-                optional_field(task_design_doc(index, task).as_deref()),
+                palette.optional_doc_id(task.frontmatter.exec_plan.as_deref()),
+                palette.optional_doc_id(task_upstream_design_doc(index, task).as_deref()),
             ));
         }
     }
@@ -220,26 +249,48 @@ fn render_dashboard(
     );
     output.push_str("  historical totals\n");
     output.push_str(&format!(
-        "    exec plans: completed={} abandoned={}\n",
-        historical_execs
-            .get(&Status::Completed)
-            .copied()
-            .unwrap_or(0),
-        historical_execs
-            .get(&Status::Abandoned)
-            .copied()
-            .unwrap_or(0),
+        "    exec plans: {}\n",
+        render_status_counts(
+            palette,
+            &[
+                (
+                    Status::Completed,
+                    historical_execs
+                        .get(&Status::Completed)
+                        .copied()
+                        .unwrap_or(0),
+                ),
+                (
+                    Status::Abandoned,
+                    historical_execs
+                        .get(&Status::Abandoned)
+                        .copied()
+                        .unwrap_or(0),
+                ),
+            ]
+        ),
     ));
     output.push_str(&format!(
-        "    task specs: completed={} cancelled={}\n",
-        historical_tasks
-            .get(&Status::Completed)
-            .copied()
-            .unwrap_or(0),
-        historical_tasks
-            .get(&Status::Cancelled)
-            .copied()
-            .unwrap_or(0),
+        "    task specs: {}\n",
+        render_status_counts(
+            palette,
+            &[
+                (
+                    Status::Completed,
+                    historical_tasks
+                        .get(&Status::Completed)
+                        .copied()
+                        .unwrap_or(0),
+                ),
+                (
+                    Status::Cancelled,
+                    historical_tasks
+                        .get(&Status::Cancelled)
+                        .copied()
+                        .unwrap_or(0),
+                ),
+            ]
+        ),
     ));
 
     output.push('\n');
@@ -356,7 +407,10 @@ fn render_detail(
     let mut output = String::new();
     output.push_str(&palette.header("Overview"));
     output.push('\n');
-    output.push_str(&format!("  id: {}\n", document.id));
+    output.push_str(&format!(
+        "  id: {}\n",
+        palette.doc_id(&document.id.to_string())
+    ));
     output.push_str(&format!(
         "  title: {}\n",
         document.title.as_deref().unwrap_or("none")
@@ -397,12 +451,13 @@ fn render_detail(
                 Some(target) => output.push_str(&format!(
                     "  {}: {} ({})\n",
                     reference.label,
-                    reference.raw_target,
+                    palette.doc_id(&reference.raw_target),
                     palette.status(target.status)
                 )),
                 None => output.push_str(&format!(
                     "  {}: {} (unresolved)\n",
-                    reference.label, reference.raw_target
+                    reference.label,
+                    palette.doc_id(&reference.raw_target)
                 )),
             }
         }
@@ -411,34 +466,12 @@ fn render_detail(
     output.push('\n');
     output.push_str(&palette.header("Downstream Associations"));
     output.push('\n');
-    let summaries = association_summaries(index, document);
-    if summaries.is_empty() {
-        output.push_str("  none\n");
-    } else {
-        for summary in summaries {
-            output.push_str(&format!("  {}\n", association_label(summary.kind)));
-            if summary.related.is_empty() {
-                output.push_str("    none\n");
-            } else {
-                for related in sorted_related(&summary.related) {
-                    output.push_str(&format!(
-                        "    {} ({})\n",
-                        related.id,
-                        palette.status(related.status)
-                    ));
-                }
-                output.push_str(&format!(
-                    "    all terminal: {}\n",
-                    if summary.all_terminal() { "yes" } else { "no" }
-                ));
-            }
-        }
-    }
+    render_downstream_associations(&mut output, index, document, palette);
 
     output.push('\n');
     output.push_str(&palette.header("Derived Chain Summary"));
     output.push('\n');
-    render_derived_summary(&mut output, index, document);
+    render_derived_summary(&mut output, index, document, palette);
 
     output.push('\n');
     output.push_str(&palette.header("Related Repository Warnings"));
@@ -460,7 +493,12 @@ fn render_detail(
     Ok(output)
 }
 
-fn render_derived_summary(output: &mut String, index: &DocumentIndex, document: &Document) {
+fn render_derived_summary(
+    output: &mut String,
+    index: &DocumentIndex,
+    document: &Document,
+    palette: Palette,
+) {
     match document.doc_type {
         DocType::Prd => {
             let design_ids = direct_related_ids(index, document, AssociationKind::PrdDesignDocs);
@@ -479,32 +517,79 @@ fn render_derived_summary(output: &mut String, index: &DocumentIndex, document: 
         DocType::DesignDoc => {
             let patches = direct_related_ids(index, document, AssociationKind::DesignDocPatches);
             let execs = direct_related_ids(index, document, AssociationKind::DesignDocExecPlans);
-            let task_counts = task_status_counts_for_exec_ids(index, &execs);
+            let direct_tasks = direct_related_ids(index, document, AssociationKind::DesignDocTasks);
+            let task_counts = task_status_counts_for_design(index, &document.id.as_string());
             output.push_str(&format!("  patches: {}\n", patches.len()));
             output.push_str(&format!("  exec plans: {}\n", execs.len()));
+            output.push_str(&format!("  direct task specs: {}\n", direct_tasks.len()));
             output.push_str(&format!(
-                "  task specs: draft={} active={} completed={} cancelled={}\n",
-                task_counts.get(&Status::Draft).copied().unwrap_or(0),
-                task_counts.get(&Status::Active).copied().unwrap_or(0),
-                task_counts.get(&Status::Completed).copied().unwrap_or(0),
-                task_counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                "  task specs: {}\n",
+                render_status_counts(
+                    palette,
+                    &[
+                        (
+                            Status::Draft,
+                            task_counts.get(&Status::Draft).copied().unwrap_or(0)
+                        ),
+                        (
+                            Status::Active,
+                            task_counts.get(&Status::Active).copied().unwrap_or(0),
+                        ),
+                        (
+                            Status::Completed,
+                            task_counts.get(&Status::Completed).copied().unwrap_or(0),
+                        ),
+                        (
+                            Status::Cancelled,
+                            task_counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                        ),
+                    ]
+                ),
             ));
         }
         DocType::ExecPlan => {
             let counts = task_status_counts(index, &document.id.as_string());
             output.push_str(&format!(
-                "  task specs: draft={} active={} completed={} cancelled={}\n",
-                counts.get(&Status::Draft).copied().unwrap_or(0),
-                counts.get(&Status::Active).copied().unwrap_or(0),
-                counts.get(&Status::Completed).copied().unwrap_or(0),
-                counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                "  task specs: {}\n",
+                render_status_counts(
+                    palette,
+                    &[
+                        (
+                            Status::Draft,
+                            counts.get(&Status::Draft).copied().unwrap_or(0)
+                        ),
+                        (
+                            Status::Active,
+                            counts.get(&Status::Active).copied().unwrap_or(0)
+                        ),
+                        (
+                            Status::Completed,
+                            counts.get(&Status::Completed).copied().unwrap_or(0),
+                        ),
+                        (
+                            Status::Cancelled,
+                            counts.get(&Status::Cancelled).copied().unwrap_or(0),
+                        ),
+                    ]
+                ),
             ));
         }
         DocType::TaskSpec => {
-            output.push_str(&format!(
-                "  exec-plan lineage: {}\n",
-                task_lineage(index, document)
-            ));
+            match task_lineage(index, document) {
+                TaskLineage::ExecPlan(lineage) => {
+                    output.push_str(&format!(
+                        "  exec-plan lineage: {}\n",
+                        palette.render_lineage(&lineage)
+                    ));
+                }
+                TaskLineage::DesignDoc(lineage) => {
+                    output.push_str(&format!(
+                        "  design-doc lineage: {}\n",
+                        palette.render_lineage(&lineage)
+                    ));
+                }
+                TaskLineage::None => output.push_str("  none\n"),
+            }
             output.push_str(&format!(
                 "  completion criteria: {}\n",
                 document.frontmatter.completion_criteria.len()
@@ -522,20 +607,112 @@ fn render_derived_summary(output: &mut String, index: &DocumentIndex, document: 
         DocType::DesignPatch => {
             output.push_str(&format!(
                 "  parent design: {}\n",
-                optional_field(document.frontmatter.parent.as_deref())
+                palette.optional_doc_id(document.frontmatter.parent.as_deref())
             ));
             output.push_str(&format!(
                 "  merged-into: {}\n",
-                optional_field(document.frontmatter.merged_into.as_deref())
+                palette.optional_doc_id(document.frontmatter.merged_into.as_deref())
             ));
             output.push_str(&format!(
                 "  superseded-by: {}\n",
-                optional_field(document.frontmatter.superseded_by.as_deref())
+                palette.optional_doc_id(document.frontmatter.superseded_by.as_deref())
             ));
         }
         DocType::ProjectSpec | DocType::OrgSpec | DocType::Guideline => {
             output.push_str("  none\n");
         }
+    }
+}
+
+fn render_downstream_associations(
+    output: &mut String,
+    index: &DocumentIndex,
+    document: &Document,
+    palette: Palette,
+) {
+    if document.doc_type == DocType::DesignDoc {
+        render_design_downstream_associations(output, index, document, palette);
+        return;
+    }
+
+    let summaries = association_summaries(index, document);
+    if summaries.is_empty() {
+        output.push_str("  none\n");
+        return;
+    }
+
+    for summary in summaries {
+        render_associated_documents(
+            output,
+            association_label(summary.kind),
+            &sorted_related(&summary.related),
+            palette,
+        );
+    }
+}
+
+fn render_design_downstream_associations(
+    output: &mut String,
+    index: &DocumentIndex,
+    document: &Document,
+    palette: Palette,
+) {
+    let design_id = document.id.as_string();
+    let patches = direct_related_documents(index, document, AssociationKind::DesignDocPatches);
+    let execs = execs_for_design(index, &design_id);
+    let exec_tasks = exec_linked_tasks_for_design(index, &design_id);
+    let direct_tasks = direct_tasks_for_design(index, &design_id);
+
+    if patches.is_empty() && execs.is_empty() && exec_tasks.is_empty() && direct_tasks.is_empty() {
+        output.push_str("  none\n");
+        return;
+    }
+
+    render_related_documents(output, "design patches", &patches, palette);
+    render_related_documents(output, "exec plans", &execs, palette);
+    render_related_documents(output, "task specs via exec plans", &exec_tasks, palette);
+    render_related_documents(output, "direct task specs", &direct_tasks, palette);
+}
+
+fn render_related_documents(
+    output: &mut String,
+    label: &str,
+    related: &[&Document],
+    palette: Palette,
+) {
+    output.push_str(&format!("  {label}\n"));
+    if related.is_empty() {
+        output.push_str("    none\n");
+        return;
+    }
+
+    for document in related {
+        output.push_str(&format!(
+            "    {} ({})\n",
+            palette.doc_id(&document.id.to_string()),
+            palette.status(document.status)
+        ));
+    }
+}
+
+fn render_associated_documents(
+    output: &mut String,
+    label: &str,
+    related: &[AssociatedDocument],
+    palette: Palette,
+) {
+    output.push_str(&format!("  {label}\n"));
+    if related.is_empty() {
+        output.push_str("    none\n");
+        return;
+    }
+
+    for document in related {
+        output.push_str(&format!(
+            "    {} ({})\n",
+            palette.doc_id(&document.id.to_string()),
+            palette.status(document.status)
+        ));
     }
 }
 
@@ -557,15 +734,16 @@ fn render_design_bucket(
         let design_id = design.id.as_string();
         output.push_str(&format!(
             "    {}  {}  {}  {}\n",
-            design.id,
+            palette.doc_id(&design.id.to_string()),
             title_for(design),
             palette.status(design.status),
             make_relative(index, &design.path)
         ));
         output.push_str(&format!(
-            "      prd: {}  exec-plans: {}  task-specs: {}\n",
-            optional_field(design.frontmatter.prd.as_deref()),
+            "      prd: {}  exec-plans: {}  direct-task-specs: {}  task-specs: {}\n",
+            palette.optional_doc_id(design.frontmatter.prd.as_deref()),
             execs_for_design(index, &design_id).len(),
+            direct_tasks_for_design(index, &design_id).len(),
             tasks_for_design(index, &design_id).len(),
         ));
     }
@@ -593,6 +771,14 @@ fn render_status_totals(
     output.push_str(&format!("  {:<11} {}\n", doc_type.as_str(), parts));
 }
 
+fn render_status_counts(palette: Palette, counts: &[(Status, usize)]) -> String {
+    counts
+        .iter()
+        .map(|(status, count)| format!("{}={count}", palette.status(*status)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn render_all_documents_bucket(
     output: &mut String,
     index: &DocumentIndex,
@@ -609,7 +795,7 @@ fn render_all_documents_bucket(
     for document in documents {
         output.push_str(&format!(
             "    {}  {}  {}  {}\n",
-            document.id,
+            palette.doc_id(&document.id.to_string()),
             palette.status(document.status),
             title_for(document),
             make_relative(index, &document.path)
@@ -632,10 +818,18 @@ fn related_warnings(
             related_ids.insert(related.id.as_string());
         }
     }
+    if document.doc_type == DocType::DesignDoc {
+        for exec in execs_for_design(index, &document.id.as_string()) {
+            related_ids.insert(exec.id.as_string());
+        }
+        for task in tasks_for_design(index, &document.id.as_string()) {
+            related_ids.insert(task.id.as_string());
+        }
+    }
     if let Some(exec_plan) = document.frontmatter.exec_plan.as_deref() {
         related_ids.insert(exec_plan.to_string());
     }
-    if let Some(design_doc) = task_design_doc(index, document) {
+    if let Some(design_doc) = task_upstream_design_doc(index, document) {
         related_ids.insert(design_doc);
     }
 
@@ -724,18 +918,50 @@ fn sorted_related(related: &[AssociatedDocument]) -> Vec<AssociatedDocument> {
     sorted
 }
 
-fn task_lineage(index: &DocumentIndex, task: &Document) -> String {
-    let exec_plan = match task.frontmatter.exec_plan.as_deref() {
-        Some(exec_plan) => exec_plan.to_string(),
-        None => return "none".to_string(),
-    };
-    match task_design_doc(index, task) {
-        Some(design_doc) => format!("{exec_plan} -> {design_doc}"),
-        None => exec_plan,
+fn direct_related_documents<'a>(
+    index: &'a DocumentIndex,
+    document: &Document,
+    kind: AssociationKind,
+) -> Vec<&'a Document> {
+    let ids = direct_related_ids(index, document, kind)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let mut documents = index
+        .documents
+        .values()
+        .filter(|candidate| ids.contains(&candidate.id.as_string()))
+        .collect::<Vec<_>>();
+    documents.sort_by(|left, right| left.id.cmp(&right.id));
+    documents
+}
+
+enum TaskLineage {
+    None,
+    ExecPlan(String),
+    DesignDoc(String),
+}
+
+fn task_lineage(index: &DocumentIndex, task: &Document) -> TaskLineage {
+    if let Some(exec_plan) = task.frontmatter.exec_plan.as_deref() {
+        return match task_design_doc_via_exec_plan(index, task) {
+            Some(design_doc) => TaskLineage::ExecPlan(format!("{exec_plan} -> {design_doc}")),
+            None => TaskLineage::ExecPlan(exec_plan.to_string()),
+        };
+    }
+    match task.frontmatter.design_doc.as_deref() {
+        Some(design_doc) => TaskLineage::DesignDoc(design_doc.to_string()),
+        None => TaskLineage::None,
     }
 }
 
-fn task_design_doc(index: &DocumentIndex, task: &Document) -> Option<String> {
+fn task_upstream_design_doc(index: &DocumentIndex, task: &Document) -> Option<String> {
+    task.frontmatter
+        .design_doc
+        .clone()
+        .or_else(|| task_design_doc_via_exec_plan(index, task))
+}
+
+fn task_design_doc_via_exec_plan(index: &DocumentIndex, task: &Document) -> Option<String> {
     let exec_plan = task.frontmatter.exec_plan.as_deref()?;
     index
         .documents
@@ -765,12 +991,49 @@ fn tasks_for_design<'a>(index: &'a DocumentIndex, design_id: &str) -> Vec<&'a Do
         .values()
         .filter(|document| document.doc_type == DocType::TaskSpec)
         .filter(|document| {
+            document.frontmatter.design_doc.as_deref() == Some(design_id)
+                || document
+                    .frontmatter
+                    .exec_plan
+                    .as_ref()
+                    .is_some_and(|exec_id| exec_ids.contains(exec_id))
+        })
+        .collect::<Vec<_>>();
+    tasks.sort_by(|left, right| left.id.cmp(&right.id));
+    tasks.dedup_by(|left, right| left.id == right.id);
+    tasks
+}
+
+fn exec_linked_tasks_for_design<'a>(
+    index: &'a DocumentIndex,
+    design_id: &str,
+) -> Vec<&'a Document> {
+    let exec_ids = execs_for_design(index, design_id)
+        .into_iter()
+        .map(|exec| exec.id.as_string())
+        .collect::<BTreeSet<_>>();
+    let mut tasks = index
+        .documents
+        .values()
+        .filter(|document| document.doc_type == DocType::TaskSpec)
+        .filter(|document| {
             document
                 .frontmatter
                 .exec_plan
                 .as_ref()
                 .is_some_and(|exec_id| exec_ids.contains(exec_id))
         })
+        .collect::<Vec<_>>();
+    tasks.sort_by(|left, right| left.id.cmp(&right.id));
+    tasks
+}
+
+fn direct_tasks_for_design<'a>(index: &'a DocumentIndex, design_id: &str) -> Vec<&'a Document> {
+    let mut tasks = index
+        .documents
+        .values()
+        .filter(|document| document.doc_type == DocType::TaskSpec)
+        .filter(|document| document.frontmatter.design_doc.as_deref() == Some(design_id))
         .collect::<Vec<_>>();
     tasks.sort_by(|left, right| left.id.cmp(&right.id));
     tasks
@@ -789,24 +1052,12 @@ fn task_status_counts(index: &DocumentIndex, exec_id: &str) -> BTreeMap<Status, 
     counts
 }
 
-fn task_status_counts_for_exec_ids(
+fn task_status_counts_for_design(
     index: &DocumentIndex,
-    exec_ids: &[String],
+    design_id: &str,
 ) -> BTreeMap<Status, usize> {
-    let wanted = exec_ids.iter().cloned().collect::<BTreeSet<_>>();
     let mut counts = BTreeMap::new();
-    for task in index
-        .documents
-        .values()
-        .filter(|document| document.doc_type == DocType::TaskSpec)
-        .filter(|document| {
-            document
-                .frontmatter
-                .exec_plan
-                .as_ref()
-                .is_some_and(|exec_id| wanted.contains(exec_id))
-        })
-    {
+    for task in tasks_for_design(index, design_id) {
         *counts.entry(task.status).or_insert(0) += 1;
     }
     counts
@@ -907,12 +1158,9 @@ fn association_label(kind: AssociationKind) -> &'static str {
         AssociationKind::PrdDesignDocs => "design docs",
         AssociationKind::DesignDocPatches => "design patches",
         AssociationKind::DesignDocExecPlans => "exec plans",
+        AssociationKind::DesignDocTasks => "direct task specs",
         AssociationKind::ExecPlanTasks => "task specs",
     }
-}
-
-fn optional_field(value: Option<&str>) -> &str {
-    value.unwrap_or("none")
 }
 
 fn title_for(document: &Document) -> &str {
@@ -1005,6 +1253,23 @@ impl Palette {
 
     fn status_label(self, label: &str, status: Status) -> String {
         self.wrap(self.status_code(status), label)
+    }
+
+    fn doc_id(self, text: &str) -> String {
+        self.wrap(ID_COLOR, text)
+    }
+
+    fn optional_doc_id(self, value: Option<&str>) -> String {
+        value
+            .map(|value| self.doc_id(value))
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    fn render_lineage(self, raw: &str) -> String {
+        raw.split(" -> ")
+            .map(|part| self.doc_id(part))
+            .collect::<Vec<_>>()
+            .join(" -> ")
     }
 
     fn status_code(self, status: Status) -> &'static str {

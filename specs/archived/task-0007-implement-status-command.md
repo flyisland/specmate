@@ -1,7 +1,7 @@
 ---
 id: task-0007
 title: "Implement status command"
-status: active
+status: completed
 exec-plan: exec-002
 guidelines:
   - docs/guidelines/specmate-principles.md

@@ -1,7 +1,7 @@
 ---
 id: task-0005
 title: "Implement association-aware transitions"
-status: active
+status: completed
 guidelines:
   - docs/guidelines/specmate-principles.md
   - docs/guidelines/cli-conventions.md

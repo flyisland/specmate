@@ -261,6 +261,8 @@ pub enum AssociationKind {
     DesignDocPatches,
     /// Exec Plans associated with a Design Doc.
     DesignDocExecPlans,
+    /// Standalone Task Specs directly associated with a Design Doc.
+    DesignDocTasks,
     /// Task Specs associated with an Exec Plan.
     ExecPlanTasks,
 }

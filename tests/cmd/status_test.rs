@@ -111,6 +111,28 @@ fn test_status_dashboard_sorts_rows_deterministically() {
 }
 
 #[test]
+fn test_status_dashboard_orders_design_buckets_by_lifecycle() {
+    let dir = temp_repo();
+    create_status_repo(dir.path());
+
+    let (result, stdout, stderr) = run_status(&dir, None, false, ColorWhen::Never);
+
+    assert!(result.is_ok(), "status failed: {stderr}");
+    let draft = stdout.find("  draft").expect("draft bucket should exist");
+    let candidate = stdout
+        .find("  candidate")
+        .expect("candidate bucket should exist");
+    let implemented = stdout
+        .find("  implemented")
+        .expect("implemented bucket should exist");
+
+    assert!(
+        draft < candidate && candidate < implemented,
+        "design buckets should follow lifecycle order: {stdout}"
+    );
+}
+
+#[test]
 fn test_status_detail_for_design_doc_reports_relationships() {
     let dir = temp_repo();
     create_status_repo(dir.path());
@@ -128,6 +150,10 @@ fn test_status_detail_for_design_doc_reports_relationships() {
     assert!(stdout.contains("exec plans"));
     assert!(stdout.contains("exec-002 (active)"));
     assert!(stdout.contains("exec-010 (active)"));
+    assert!(stdout.contains("task specs via exec plans"));
+    assert!(stdout.contains("task-0002 (active)"));
+    assert!(stdout.contains("task-0010 (active)"));
+    assert!(stdout.contains("task-0011 (cancelled)"));
     assert!(stdout.contains("Derived Chain Summary"));
     assert!(stdout.contains("exec plans: 2"));
 }
@@ -144,6 +170,24 @@ fn test_status_detail_for_task_spec_reports_lineage() {
     assert!(stdout.contains("exec-plan: exec-002 (active)"));
     assert!(stdout.contains("exec-plan lineage: exec-002 -> design-002"));
     assert!(stdout.contains("No related warnings."));
+}
+
+#[test]
+fn test_status_detail_for_direct_design_task_reports_direct_upstream() {
+    let dir = temp_repo();
+    create_status_repo(dir.path());
+    write_file(
+        dir.path(),
+        "specs/active/task-0012-direct-design-follow-up.md",
+        "---\nid: task-0012\ntitle: \"Direct design follow up\"\nstatus: active\ndesign-doc: design-010\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/direct_design.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"follow up\"\n    test: \"test_follow_up\"\n---\n\n# Task\n",
+    );
+
+    let (result, stdout, stderr) = run_status(&dir, Some("task-0012"), false, ColorWhen::Never);
+
+    assert!(result.is_ok(), "status failed: {stderr}");
+    assert!(stdout.contains("design-doc: design-010 (candidate)"));
+    assert!(stdout.contains("design-doc lineage: design-010"));
+    assert!(!stdout.contains("exec-plan lineage:"));
 }
 
 #[test]
@@ -252,5 +296,29 @@ fn test_status_color_always_adds_ansi_without_changing_text_content() {
     assert!(stdout.contains("Overview"));
     assert!(stdout.contains("status: "));
     assert!(stdout.contains("candidate"));
-    assert!(stdout.contains("design-doc: design-001"));
+    assert!(stdout.contains("design-doc: \u{1b}[1mdesign-001\u{1b}[0m"));
+    assert!(stdout.contains("\u{1b}[1mdesign-002\u{1b}[0m"));
+    assert!(stdout.contains("\u{1b}[36mactive\u{1b}[0m=2"));
+    assert!(stdout.contains("\u{1b}[33mdraft\u{1b}[0m=0"));
+    assert!(stdout.contains("\u{1b}[2;31mcancelled\u{1b}[0m=1"));
+}
+
+#[test]
+fn test_status_detail_for_design_doc_reports_direct_task_associations() {
+    let dir = temp_repo();
+    create_status_repo(dir.path());
+    write_file(
+        dir.path(),
+        "specs/active/task-0012-direct-design-follow-up.md",
+        "---\nid: task-0012\ntitle: \"Direct design follow up\"\nstatus: active\ndesign-doc: design-002\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/direct_design.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"follow up\"\n    test: \"test_follow_up\"\n---\n\n# Task\n",
+    );
+
+    let (result, stdout, stderr) = run_status(&dir, Some("design-002"), false, ColorWhen::Never);
+
+    assert!(result.is_ok(), "status failed: {stderr}");
+    assert!(stdout.contains("task specs via exec plans"));
+    assert!(stdout.contains("task-0002 (active)"));
+    assert!(stdout.contains("direct task specs"));
+    assert!(stdout.contains("task-0012 (active)"));
+    assert!(stdout.contains("direct task specs: 1"));
 }

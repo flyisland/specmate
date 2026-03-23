@@ -213,11 +213,25 @@ pub fn association_summaries(
             },
             AssociationSummary {
                 kind: AssociationKind::DesignDocExecPlans,
-                owner,
+                owner: owner.clone(),
                 related: index
                     .documents
                     .values()
                     .filter(|candidate| candidate.doc_type == DocType::ExecPlan)
+                    .filter(|candidate| {
+                        candidate.frontmatter.design_doc.as_deref() == Some(owner_id.as_str())
+                    })
+                    .map(associated_document)
+                    .collect(),
+            },
+            AssociationSummary {
+                kind: AssociationKind::DesignDocTasks,
+                owner,
+                related: index
+                    .documents
+                    .values()
+                    .filter(|candidate| candidate.doc_type == DocType::TaskSpec)
+                    .filter(|candidate| candidate.frontmatter.exec_plan.is_none())
                     .filter(|candidate| {
                         candidate.frontmatter.design_doc.as_deref() == Some(owner_id.as_str())
                     })
@@ -406,6 +420,12 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
         validate_relationships(index, document, &mut violations);
 
         if matches!(document.doc_type, DocType::TaskSpec) {
+            if frontmatter.exec_plan.is_some() && frontmatter.design_doc.is_some() {
+                violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: "TaskSpec must not declare both exec-plan and design-doc".to_string(),
+                });
+            }
             let mut seen = BTreeSet::new();
             for criterion in &frontmatter.completion_criteria {
                 if !is_completion_criterion_id(&criterion.id) {
@@ -546,6 +566,20 @@ fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Stat
                     ),
                 );
             }
+            if let Some(blocking_task) = index.documents.values().find(|candidate| {
+                candidate.doc_type == DocType::TaskSpec
+                    && candidate.frontmatter.exec_plan.is_none()
+                    && is_live_status(candidate.doc_type, candidate.status)
+                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
+            }) {
+                return invalid_transition_field(
+                    document,
+                    format!(
+                        "cannot transition to obsolete while {} is {}",
+                        blocking_task.id, blocking_task.status
+                    ),
+                );
+            }
         }
         (DocType::DesignPatch, Status::Implemented, Status::ObsoleteMerged) => {
             match document
@@ -670,6 +704,16 @@ fn validate_relationships(
                 message: format!("exec-plan must reference an Exec Plan, found {exec_plan}"),
             }),
         }
+    }
+
+    if matches!(document.doc_type, DocType::TaskSpec)
+        && frontmatter.exec_plan.is_some()
+        && frontmatter.design_doc.is_some()
+    {
+        violations.push(ValidationViolation {
+            path: document.path.clone(),
+            message: "TaskSpec must not declare both exec-plan and design-doc".to_string(),
+        });
     }
 
     if matches!(document.doc_type, DocType::DesignDoc) {

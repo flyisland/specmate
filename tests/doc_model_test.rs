@@ -258,6 +258,26 @@ fn validate_index_requires_guideline_paths_to_resolve() {
 }
 
 #[test]
+fn validate_index_rejects_task_specs_with_both_exec_plan_and_design_doc() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    write_markdown(
+        dir.path(),
+        "specs/active/task-0002-conflicting-upstream.md",
+        "---\nid: task-0002\ntitle: \"Conflicting upstream\"\nstatus: active\nexec-plan: exec-001\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n",
+    );
+
+    let index = build_index(dir.path()).expect("index should load");
+    let violations = validate_index(&index);
+
+    assert!(violations.iter().any(|violation| {
+        violation
+            .message
+            .contains("must not declare both exec-plan and design-doc")
+    }));
+}
+
+#[test]
 fn expected_directory_covers_all_valid_doc_type_status_pairs() {
     let cases = [
         (DocType::Prd, Status::Draft, Some("docs/prd/draft")),
@@ -826,6 +846,18 @@ fn test_validate_index_allows_later_bugfix_work_for_implemented_design() {
 fn test_validate_index_preserves_historical_association_links() {
     let dir = temp_repo();
     valid_repo(&dir);
+    fs::remove_file(
+        dir.path()
+            .join("docs/design-docs/candidate/design-001-auth-system.md"),
+    )
+    .expect("candidate design should be removable");
+    fs::remove_file(
+        dir.path()
+            .join("docs/exec-plans/active/exec-001-auth-rollout.md"),
+    )
+    .expect("active exec should be removable");
+    fs::remove_file(dir.path().join("specs/active/task-0001-implement-auth.md"))
+        .expect("active task should be removable");
     write_markdown(
         dir.path(),
         "docs/design-docs/obsolete/design-001-auth-system.md",
@@ -855,6 +887,65 @@ fn test_validate_index_preserves_historical_association_links() {
         violations
             .iter()
             .all(|violation| !violation.message.contains("exec-plan")),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn test_validate_index_rejects_live_direct_task_links_to_obsolete_designs() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    fs::remove_file(
+        dir.path()
+            .join("docs/design-docs/candidate/design-001-auth-system.md"),
+    )
+    .expect("candidate design should be removable");
+    write_markdown(
+        dir.path(),
+        "docs/design-docs/obsolete/design-001-auth-system.md",
+        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
+    );
+    write_markdown(
+        dir.path(),
+        "specs/active/task-0002-direct-design-task.md",
+        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: active\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
+    );
+
+    let index = build_index(dir.path()).expect("index should load");
+    let violations = validate_index(&index);
+
+    assert!(violations.iter().any(|violation| violation
+        .message
+        .contains("design-doc design-001 is obsolete")));
+}
+
+#[test]
+fn test_validate_index_preserves_historical_direct_task_links_to_obsolete_designs() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    fs::remove_file(
+        dir.path()
+            .join("docs/design-docs/candidate/design-001-auth-system.md"),
+    )
+    .expect("candidate design should be removable");
+    write_markdown(
+        dir.path(),
+        "docs/design-docs/obsolete/design-001-auth-system.md",
+        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
+    );
+    write_markdown(
+        dir.path(),
+        "specs/archived/task-0002-direct-design-task.md",
+        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: completed\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
+    );
+
+    let index = build_index(dir.path()).expect("index should load");
+    let violations = validate_index(&index);
+
+    assert!(
+        violations.iter().all(|violation| !violation
+            .message
+            .contains("design-doc design-001 is obsolete")),
         "{violations:#?}"
     );
 }
@@ -944,6 +1035,25 @@ fn test_validate_preview_accepts_satisfied_association_aware_move() {
 }
 
 #[test]
+fn test_validate_transition_blocks_design_obsolete_when_live_direct_task_exists() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    write_markdown(
+        dir.path(),
+        "specs/active/task-0002-direct-design-task.md",
+        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: active\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
+    );
+
+    let index = build_index(dir.path()).expect("index should load");
+    let design = index
+        .documents
+        .get(&DocId::DesignDoc(1))
+        .expect("design should exist");
+
+    assert!(validate_transition(&index, design, Status::Obsolete).is_err());
+}
+
+#[test]
 fn test_preview_transition_rejects_document_missing_from_index() {
     let dir = temp_repo();
     valid_repo(&dir);
@@ -998,6 +1108,11 @@ fn test_association_summaries_report_related_documents_target_statuses_and_termi
         "specs/archived/task-0002-auth-complete.md",
         "---\nid: task-0002\ntitle: \"Auth complete\"\nstatus: completed\nexec-plan: exec-002\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
     );
+    write_markdown(
+        dir.path(),
+        "specs/archived/task-0003-direct-auth-follow-up.md",
+        "---\nid: task-0003\ntitle: \"Direct auth follow up\"\nstatus: cancelled\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
+    );
 
     let index = build_index(dir.path()).expect("index should load");
     let prd = index
@@ -1032,6 +1147,12 @@ fn test_association_summaries_report_related_documents_target_statuses_and_termi
         .find(|summary| summary.kind == AssociationKind::DesignDocExecPlans)
         .expect("exec summary should exist");
     assert!(exec_summary.all_in_status(Status::Completed));
+    let direct_task_summary = design_summaries
+        .iter()
+        .find(|summary| summary.kind == AssociationKind::DesignDocTasks)
+        .expect("direct task summary should exist");
+    assert_eq!(direct_task_summary.related.len(), 1);
+    assert!(direct_task_summary.all_terminal());
 
     let task_summary = association_summaries(&index, exec)
         .into_iter()
