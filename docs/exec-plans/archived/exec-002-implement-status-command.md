@@ -1,7 +1,7 @@
 ---
 id: exec-002
 title: "Implement Status Command"
-status: active
+status: completed
 design-doc: design-008
 ---
 
