@@ -1,21 +1,29 @@
 # docs/exec-plans/
 
-Execution Plans coordinating multiple Task Specs toward a shared goal.
+Execution Plans coordinating one or more Task Specs toward a shared goal.
 
 ## Exec Plan lifecycle
 
 ```
-draft -> active -> completed
-                \ abandoned
+draft <-> candidate
+   \         \
+    \         -> closed
+     -> closed
 ```
 
 | Status | Meaning |
 |---|---|
-| `draft` | Tasks and dependencies being planned. |
-| `active` | Execution in progress. |
-| `completed` | All phases done. Design Doc can now move to `implemented`. |
-| `abandoned` | Stopped mid-execution. Reason and completed phases recorded. |
+| `draft` | Planning stage. Not executable yet. |
+| `candidate` | Approved for execution. |
+| `closed` | Historical terminal state. Work is no longer active. |
+
+## Layout
+
+- `docs/exec-plans/exec-<slug>/plan.md`
+- `docs/exec-plans/exec-<slug>/task-01-<slug>.md`
 
 ## Naming
 
-`exec-001-<slug>.md` — three-digit ID, globally incremented.
+- Exec Plan canonical ID: `exec-<slug>`
+- Task Spec frontmatter ID: `task-01`
+- Repo-wide Task reference: `exec-<slug>/task-01`

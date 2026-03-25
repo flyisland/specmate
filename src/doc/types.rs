@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub enum DocType {
     /// Product requirements document.
     Prd,
-    /// Design document for a module or subsystem.
+    /// Design document for a module, subsystem, or cross-cutting principle.
     DesignDoc,
     /// Patch against an existing design document.
     DesignPatch,
@@ -15,9 +15,9 @@ pub enum DocType {
     ExecPlan,
     /// Task specification document.
     TaskSpec,
-    /// Fixed-path `specs/project.md`.
+    /// Fixed-path `docs/specs/project.md`.
     ProjectSpec,
-    /// Fixed-path `specs/org.md`.
+    /// Fixed-path `docs/specs/org.md`.
     OrgSpec,
     /// Guideline under `docs/guidelines/`.
     Guideline,
@@ -56,18 +56,14 @@ pub enum Status {
     Candidate,
     /// Implemented state.
     Implemented,
+    /// Closed historical state.
+    Closed,
     /// Obsolete state.
     Obsolete,
     /// Obsolete merged state used by design patches.
     ObsoleteMerged,
-    /// Active state.
+    /// Fixed-path always-active state for non-lifecycle docs.
     Active,
-    /// Completed state.
-    Completed,
-    /// Abandoned state.
-    Abandoned,
-    /// Cancelled state.
-    Cancelled,
 }
 
 impl Status {
@@ -78,12 +74,10 @@ impl Status {
             Status::Approved => "approved",
             Status::Candidate => "candidate",
             Status::Implemented => "implemented",
+            Status::Closed => "closed",
             Status::Obsolete => "obsolete",
             Status::ObsoleteMerged => "obsolete:merged",
             Status::Active => "active",
-            Status::Completed => "completed",
-            Status::Abandoned => "abandoned",
-            Status::Cancelled => "cancelled",
         }
     }
 }
@@ -94,39 +88,57 @@ impl fmt::Display for Status {
     }
 }
 
+fn render_local_sequence(value: u32) -> String {
+    format!("{value:02}")
+}
+
 /// Canonical ID for a managed document.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DocId {
-    /// `prd-001`
-    Prd(u32),
-    /// `design-001`
-    DesignDoc(u32),
-    /// `design-001-patch-01`
-    DesignPatch(u32, u8),
-    /// `exec-001`
-    ExecPlan(u32),
-    /// `task-0001`
-    TaskSpec(u32),
+    /// `prd-<slug>`
+    Prd(String),
+    /// `design-<slug>`
+    DesignDoc(String),
+    /// `design-<parent-slug>-patch-<nn>-<patch-slug>`
+    DesignPatch {
+        parent_slug: String,
+        sequence: u32,
+        patch_slug: String,
+    },
+    /// `exec-<slug>`
+    ExecPlan(String),
+    /// `<exec-id>/task-<nn>`
+    TaskSpec { exec_slug: String, sequence: u32 },
     /// `project`
     ProjectSpec,
     /// `org`
     OrgSpec,
-    /// Guideline slug from `docs/guidelines/<slug>.md`
+    /// Relative guideline identifier such as `error-handling` or `obsolete/error-handling`.
     Guideline(String),
 }
 
 impl DocId {
-    /// Returns the canonical serialized identifier used by frontmatter references.
+    /// Returns the canonical serialized identifier used by references and CLI lookup.
     pub fn as_string(&self) -> String {
         match self {
-            DocId::Prd(id) => format!("prd-{id:03}"),
-            DocId::DesignDoc(id) => format!("design-{id:03}"),
-            DocId::DesignPatch(id, patch) => format!("design-{id:03}-patch-{patch:02}"),
-            DocId::ExecPlan(id) => format!("exec-{id:03}"),
-            DocId::TaskSpec(id) => format!("task-{id:04}"),
+            DocId::Prd(slug) => format!("prd-{slug}"),
+            DocId::DesignDoc(slug) => format!("design-{slug}"),
+            DocId::DesignPatch {
+                parent_slug,
+                sequence,
+                patch_slug,
+            } => format!(
+                "design-{parent_slug}-patch-{}-{patch_slug}",
+                render_local_sequence(*sequence)
+            ),
+            DocId::ExecPlan(slug) => format!("exec-{slug}"),
+            DocId::TaskSpec {
+                exec_slug,
+                sequence,
+            } => format!("exec-{exec_slug}/task-{}", render_local_sequence(*sequence)),
             DocId::ProjectSpec => "project".to_string(),
             DocId::OrgSpec => "org".to_string(),
-            DocId::Guideline(slug) => slug.clone(),
+            DocId::Guideline(relative) => relative.clone(),
         }
     }
 
@@ -135,12 +147,45 @@ impl DocId {
         match self {
             DocId::Prd(_) => DocType::Prd,
             DocId::DesignDoc(_) => DocType::DesignDoc,
-            DocId::DesignPatch(_, _) => DocType::DesignPatch,
+            DocId::DesignPatch { .. } => DocType::DesignPatch,
             DocId::ExecPlan(_) => DocType::ExecPlan,
-            DocId::TaskSpec(_) => DocType::TaskSpec,
+            DocId::TaskSpec { .. } => DocType::TaskSpec,
             DocId::ProjectSpec => DocType::ProjectSpec,
             DocId::OrgSpec => DocType::OrgSpec,
             DocId::Guideline(_) => DocType::Guideline,
+        }
+    }
+
+    /// Returns the frontmatter `id` value for this document.
+    pub fn frontmatter_id(&self) -> String {
+        match self {
+            DocId::TaskSpec { sequence, .. } => {
+                format!("task-{}", render_local_sequence(*sequence))
+            }
+            _ => self.as_string(),
+        }
+    }
+
+    /// Returns the escaped single-token task rendering when relevant.
+    pub fn escaped_string(&self) -> String {
+        match self {
+            DocId::TaskSpec {
+                exec_slug,
+                sequence,
+            } => format!(
+                "exec-{exec_slug}--task-{}",
+                render_local_sequence(*sequence)
+            ),
+            _ => self.as_string(),
+        }
+    }
+
+    /// Returns the containing exec slug for Task Specs.
+    pub fn exec_slug(&self) -> Option<&str> {
+        match self {
+            DocId::TaskSpec { exec_slug, .. } => Some(exec_slug.as_str()),
+            DocId::ExecPlan(slug) => Some(slug.as_str()),
+            _ => None,
         }
     }
 }
@@ -180,6 +225,10 @@ pub struct Frontmatter {
     pub title: Option<String>,
     /// Optional raw status string.
     pub status: Option<String>,
+    /// Optional lifecycle created date.
+    pub created: Option<String>,
+    /// Optional lifecycle closed date.
+    pub closed: Option<String>,
     /// Optional module name.
     pub module: Option<String>,
     /// Optional PRD reference.
@@ -190,11 +239,13 @@ pub struct Frontmatter {
     pub merged_into: Option<String>,
     /// Optional superseded-by reference.
     pub superseded_by: Option<String>,
-    /// Optional design-doc reference.
+    /// Optional legacy singular design-doc reference.
     pub design_doc: Option<String>,
+    /// Optional plural design-docs reference.
+    pub design_docs: Vec<String>,
     /// Optional exec-plan reference.
     pub exec_plan: Option<String>,
-    /// Optional guideline paths.
+    /// Optional guideline paths retained for backward compatibility during migration.
     pub guidelines: Vec<String>,
     /// Optional boundaries section.
     pub boundaries: Option<Boundaries>,
@@ -259,32 +310,32 @@ pub enum AssociationKind {
     PrdDesignDocs,
     /// Design Patches associated with a parent Design Doc.
     DesignDocPatches,
-    /// Exec Plans associated with a Design Doc.
+    /// Exec Plans associated with a Design Doc or Design Patch.
     DesignDocExecPlans,
-    /// Standalone Task Specs directly associated with a Design Doc.
+    /// Direct Task Specs associated with a Design Doc.
     DesignDocTasks,
     /// Task Specs associated with an Exec Plan.
     ExecPlanTasks,
 }
 
-/// One related document returned in an association summary.
+/// Minimal associated-document facts for status views and transition gates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedDocument {
-    /// Canonical ID of the related document.
+    /// Canonical ID of the associated document.
     pub id: DocId,
-    /// Loaded document type.
+    /// Document type.
     pub doc_type: DocType,
-    /// Effective lifecycle status.
+    /// Current lifecycle status.
     pub status: Status,
 }
 
-/// Summary of one direct-association set for a document.
+/// Aggregated facts about one direct association set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociationSummary {
-    /// The relationship family represented by this summary.
+    /// Association set kind.
     pub kind: AssociationKind,
-    /// Canonical ID of the anchor document.
+    /// Canonical owner document.
     pub owner: DocId,
-    /// Related documents in this association set.
+    /// Related documents in deterministic canonical-id order.
     pub related: Vec<AssociatedDocument>,
 }

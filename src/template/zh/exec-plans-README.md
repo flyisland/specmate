@@ -1,21 +1,29 @@
 # docs/exec-plans/
 
-协调多个 Task Spec 实现共同目标的执行计划。
+协调一个或多个 Task Spec 实现共同目标的执行计划。
 
 ## Exec Plan 状态流转
 
 ```
-draft -> active -> completed
-                \ abandoned
+draft <-> candidate
+   \         \
+    \         -> closed
+     -> closed
 ```
 
 | 状态 | 含义 |
 |---|---|
-| `draft` | 任务和依赖关系规划中 |
-| `active` | 执行中 |
-| `completed` | 所有 phase 完成，Design Doc 可以移至 `implemented` |
-| `abandoned` | 中途停止，需记录原因和已完成的 phase |
+| `draft` | 规划中，尚不可执行 |
+| `candidate` | 已批准，可执行 |
+| `closed` | 历史终态，不再继续执行 |
+
+## 布局
+
+- `docs/exec-plans/exec-<slug>/plan.md`
+- `docs/exec-plans/exec-<slug>/task-01-<slug>.md`
 
 ## 命名规则
 
-`exec-001-<slug>.md` — 三位数 ID，全局递增。
+- Exec Plan canonical ID: `exec-<slug>`
+- Task Spec frontmatter ID: `task-01`
+- repo 级 Task 引用: `exec-<slug>/task-01`

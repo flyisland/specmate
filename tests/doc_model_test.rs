@@ -1,11 +1,10 @@
 use specmate::doc::{
     association_summaries, build_compliant_index, build_index, ensure_index_compliant,
-    expected_directory, next_id, next_patch_number, preview_transition, validate_index,
-    validate_preview, validate_transition, AssociationKind, DocId, DocType, Status,
+    ensure_unique_slug, expected_directory, next_patch_number, next_task_sequence,
+    preview_transition, validate_index, validate_preview, validate_transition, AssociationKind,
+    DocId, DocType, Status,
 };
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tempfile::TempDir;
 
@@ -24,12 +23,12 @@ fn write_markdown(root: &Path, relative: &str, contents: &str) {
 fn valid_repo(dir: &TempDir) {
     write_markdown(
         dir.path(),
-        "specs/project.md",
+        "docs/specs/project.md",
         "---\nid: project\nstatus: active\n---\n\n# Project\n",
     );
     write_markdown(
         dir.path(),
-        "specs/org.md",
+        "docs/specs/org.md",
         "---\nid: org\nstatus: active\n---\n\n# Org\n",
     );
     write_markdown(
@@ -39,28 +38,61 @@ fn valid_repo(dir: &TempDir) {
     );
     write_markdown(
         dir.path(),
-        "docs/prd/approved/prd-001-user-auth.md",
-        "---\nid: prd-001\ntitle: \"User Auth\"\nstatus: approved\n---\n\n# PRD\n",
+        "docs/prd/approved/prd-user-auth.md",
+        "---\nid: prd-user-auth\ntitle: \"User Auth\"\nstatus: approved\ncreated: 2026-03-25\n---\n\n# PRD\n",
     );
     write_markdown(
         dir.path(),
-        "docs/design-docs/candidate/design-001-auth-system.md",
-        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: candidate\nprd: prd-001\n---\n\n# Design\n",
+        "docs/design/candidate/design-auth-system.md",
+        "---\nid: design-auth-system\ntitle: \"Auth System\"\nstatus: candidate\ncreated: 2026-03-25\nprd: prd-user-auth\n---\n\n# Design\n",
     );
     write_markdown(
         dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-01-drop-username.md",
-        "---\nid: design-001-patch-01\ntitle: \"Drop username\"\nstatus: obsolete\nparent: design-001\n---\n\n# Patch\n",
+        "docs/exec-plans/exec-auth-rollout/plan.md",
+        "---\nid: exec-auth-rollout\ntitle: \"Auth rollout\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-auth-system\n---\n\n# Exec\n",
     );
     write_markdown(
         dir.path(),
-        "docs/exec-plans/active/exec-001-auth-rollout.md",
-        "---\nid: exec-001\ntitle: \"Auth rollout\"\nstatus: active\n---\n\n# Exec\n",
+        "docs/exec-plans/exec-auth-rollout/task-01-implement-login.md",
+        "---\nid: task-01\ntitle: \"Implement login\"\nstatus: candidate\ncreated: 2026-03-25\nexec-plan: exec-auth-rollout\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - docs/prd/**\n    - docs/design/**\n    - docs/guidelines/**\n    - docs/specs/**\n    - docs/exec-plans/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: login compiles\n    test: test_login\n---\n\n# Task\n",
+    );
+}
+
+fn closed_task_repo(dir: &TempDir) {
+    write_markdown(
+        dir.path(),
+        "docs/specs/project.md",
+        "---\nid: project\nstatus: active\n---\n\n# Project\n",
     );
     write_markdown(
         dir.path(),
-        "specs/active/task-0001-implement-auth.md",
-        "---\nid: task-0001\ntitle: \"Implement auth\"\nstatus: active\nexec-plan: exec-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
+        "docs/specs/org.md",
+        "---\nid: org\nstatus: active\n---\n\n# Org\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/guidelines/reliability.md",
+        "---\ntitle: \"Reliability\"\n---\n\n# Reliability\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/prd/approved/prd-user-auth.md",
+        "---\nid: prd-user-auth\ntitle: \"User Auth\"\nstatus: approved\ncreated: 2026-03-25\n---\n\n# PRD\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/design/candidate/design-auth-system.md",
+        "---\nid: design-auth-system\ntitle: \"Auth System\"\nstatus: candidate\ncreated: 2026-03-25\nprd: prd-user-auth\n---\n\n# Design\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-auth-rollout/plan.md",
+        "---\nid: exec-auth-rollout\ntitle: \"Auth rollout\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-auth-system\n---\n\n# Exec\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-auth-rollout/task-01-implement-login.md",
+        "---\nid: task-01\ntitle: \"Implement login\"\nstatus: closed\ncreated: 2026-03-25\nclosed: 2026-03-26\nexec-plan: exec-auth-rollout\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - docs/prd/**\n    - docs/design/**\n    - docs/guidelines/**\n    - docs/specs/**\n    - docs/exec-plans/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: login compiles\n    test: test_login\n---\n\n# Task\n",
     );
 }
 
@@ -76,49 +108,35 @@ fn build_index_loads_valid_documents() {
         "{:#?}",
         index.invalid_entries
     );
-    assert_eq!(index.documents.len(), 8);
-    assert_eq!(
-        index
-            .documents
-            .get(&DocId::Guideline("reliability".to_string()))
-            .map(|doc| doc.status),
-        Some(Status::Active)
-    );
-    assert_eq!(
-        index
-            .documents
-            .get(&DocId::ProjectSpec)
-            .and_then(|doc| doc.title.clone()),
-        None
-    );
+    assert_eq!(index.documents.len(), 7);
+    assert!(index.documents.contains_key(&DocId::ProjectSpec));
+    assert!(index.documents.contains_key(&DocId::OrgSpec));
+    assert!(index
+        .documents
+        .contains_key(&DocId::Guideline("reliability".to_string())));
+    assert!(index
+        .documents
+        .contains_key(&DocId::Prd("user-auth".to_string())));
+    assert!(index
+        .documents
+        .contains_key(&DocId::DesignDoc("auth-system".to_string())));
+    assert!(index
+        .documents
+        .contains_key(&DocId::ExecPlan("auth-rollout".to_string())));
+    assert!(index.documents.contains_key(&DocId::TaskSpec {
+        exec_slug: "auth-rollout".to_string(),
+        sequence: 1,
+    }));
 }
 
 #[test]
-fn build_compliant_index_loads_valid_repository() {
+fn build_compliant_index_accepts_valid_repository() {
     let dir = temp_repo();
     valid_repo(&dir);
 
     let index = build_compliant_index(dir.path()).expect("repository should be compliant");
 
-    assert_eq!(index.documents.len(), 8);
-}
-
-#[test]
-fn build_index_reports_invalid_managed_filename() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "specs/active/not-a-task.md",
-        "---\nid: task-9999\ntitle: \"Wrong\"\nstatus: draft\n---\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-
-    assert!(index
-        .invalid_entries
-        .iter()
-        .any(|entry| entry.path.ends_with("specs/active/not-a-task.md")));
+    assert_eq!(index.documents.len(), 7);
 }
 
 #[test]
@@ -136,45 +154,20 @@ fn build_index_ignores_unmanaged_markdown() {
 }
 
 #[test]
-fn build_index_rejects_id_mismatch() {
+fn build_index_rejects_unsupported_managed_location() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/prd/approved/prd-002-user-auth.md",
-        "---\nid: prd-999\ntitle: \"User Auth\"\nstatus: approved\n---\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-
-    assert!(index
-        .invalid_entries
-        .iter()
-        .any(|entry| entry.reason.contains("id mismatch")));
-}
-
-#[test]
-fn build_index_rejects_fixed_path_id_mismatch() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "specs/project.md",
-        "---\nid: wrong-project\nstatus: active\n---\n\n# Project\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/org.md",
-        "---\nid: wrong-org\nstatus: active\n---\n\n# Org\n",
+        "docs/exec-plans/task-01-orphan.md",
+        "---\nid: task-01\ntitle: \"Orphan\"\nstatus: draft\ncreated: 2026-03-25\nexec-plan: exec-auth-rollout\n---\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
 
     assert!(index.invalid_entries.iter().any(|entry| {
-        entry.path.ends_with("specs/project.md") && entry.reason.contains("id mismatch")
-    }));
-    assert!(index.invalid_entries.iter().any(|entry| {
-        entry.path.ends_with("specs/org.md") && entry.reason.contains("id mismatch")
+        entry.path.ends_with("docs/exec-plans/task-01-orphan.md")
+            && entry.reason.contains("unsupported markdown location")
     }));
 }
 
@@ -184,8 +177,8 @@ fn build_index_rejects_patch_missing_parent() {
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/design-docs/candidate/design-002-patch-01-missing-parent.md",
-        "---\nid: design-002-patch-01\ntitle: \"Missing parent\"\nstatus: candidate\n---\n\n# Patch\n",
+        "docs/design/candidate/design-auth-system-patch-01-cleanup.md",
+        "---\nid: design-auth-system-patch-01-cleanup\ntitle: \"Cleanup\"\nstatus: candidate\ncreated: 2026-03-25\n---\n\n# Patch\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
@@ -193,24 +186,19 @@ fn build_index_rejects_patch_missing_parent() {
     assert!(index.invalid_entries.iter().any(|entry| {
         entry
             .path
-            .ends_with("docs/design-docs/candidate/design-002-patch-01-missing-parent.md")
+            .ends_with("docs/design/candidate/design-auth-system-patch-01-cleanup.md")
             && entry.reason.contains("missing field `parent`")
     }));
 }
 
 #[test]
-fn build_index_rejects_obsolete_merged_patch_without_merged_into() {
+fn build_index_rejects_task_with_legacy_design_doc_field() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/design-docs/candidate/design-002-billing.md",
-        "---\nid: design-002\ntitle: \"Billing\"\nstatus: candidate\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-002-patch-01-merged.md",
-        "---\nid: design-002-patch-01\ntitle: \"Merged patch\"\nstatus: obsolete:merged\nparent: design-002\n---\n\n# Patch\n",
+        "docs/exec-plans/exec-auth-rollout/task-02-bad-link.md",
+        "---\nid: task-02\ntitle: \"Bad link\"\nstatus: draft\ncreated: 2026-03-25\nexec-plan: exec-auth-rollout\ndesign-doc: design-auth-system\n---\n\n# Task\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
@@ -218,53 +206,24 @@ fn build_index_rejects_obsolete_merged_patch_without_merged_into() {
     assert!(index.invalid_entries.iter().any(|entry| {
         entry
             .path
-            .ends_with("docs/design-docs/obsolete/design-002-patch-01-merged.md")
-            && entry.reason.contains("missing field `merged-into`")
+            .ends_with("docs/exec-plans/exec-auth-rollout/task-02-bad-link.md")
+            && entry.reason.contains("must not declare design-doc")
     }));
 }
 
 #[test]
-fn ensure_index_compliant_rejects_invalid_managed_entries() {
+fn validate_index_requires_patch_parent_when_exec_references_patch() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/prd/approved/prd-002-bad.md",
-        "---\nid: prd-002\nstatus: approved\n---\n",
+        "docs/design/candidate/design-auth-system-patch-01-cleanup.md",
+        "---\nid: design-auth-system-patch-01-cleanup\ntitle: \"Cleanup\"\nstatus: candidate\ncreated: 2026-03-25\nparent: design-auth-system\n---\n\n# Patch\n",
     );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let error = ensure_index_compliant(&index).expect_err("index should be invalid");
-
-    assert!(error.to_string().contains("invalid managed entr"));
-}
-
-#[test]
-fn validate_index_requires_guideline_paths_to_resolve() {
-    let dir = temp_repo();
-    valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "specs/active/task-0002-bad-guideline.md",
-        "---\nid: task-0002\ntitle: \"Bad guideline\"\nstatus: active\nguidelines:\n  - docs/guidelines/missing.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: check\n    test: test_check\n---\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("does not resolve to a Guideline")));
-}
-
-#[test]
-fn validate_index_rejects_task_specs_with_both_exec_plan_and_design_doc() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0002-conflicting-upstream.md",
-        "---\nid: task-0002\ntitle: \"Conflicting upstream\"\nstatus: active\nexec-plan: exec-001\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n",
+        "docs/exec-plans/exec-auth-rollout/plan.md",
+        "---\nid: exec-auth-rollout\ntitle: \"Auth rollout\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-auth-system-patch-01-cleanup\n---\n\n# Exec\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
@@ -273,88 +232,86 @@ fn validate_index_rejects_task_specs_with_both_exec_plan_and_design_doc() {
     assert!(violations.iter().any(|violation| {
         violation
             .message
-            .contains("must not declare both exec-plan and design-doc")
+            .contains("requires parent design design-auth-system in design-docs")
     }));
 }
 
 #[test]
-fn expected_directory_covers_all_valid_doc_type_status_pairs() {
+fn validate_index_requires_guideline_paths_to_resolve() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-auth-rollout/task-02-bad-guideline.md",
+        "---\nid: task-02\ntitle: \"Bad guideline\"\nstatus: draft\ncreated: 2026-03-25\nexec-plan: exec-auth-rollout\nguidelines:\n  - docs/guidelines/missing.md\n---\n\n# Task\n",
+    );
+
+    let index = build_index(dir.path()).expect("index should load");
+    let violations = validate_index(&index);
+
+    assert!(violations.iter().any(|violation| {
+        violation
+            .message
+            .contains("guideline docs/guidelines/missing.md does not resolve to a Guideline")
+    }));
+}
+
+#[test]
+fn expected_directory_covers_new_directory_mappings() {
     let cases = [
         (DocType::Prd, Status::Draft, Some("docs/prd/draft")),
         (DocType::Prd, Status::Approved, Some("docs/prd/approved")),
         (DocType::Prd, Status::Obsolete, Some("docs/prd/obsolete")),
-        (
-            DocType::DesignDoc,
-            Status::Draft,
-            Some("docs/design-docs/draft"),
-        ),
+        (DocType::DesignDoc, Status::Draft, Some("docs/design/draft")),
         (
             DocType::DesignDoc,
             Status::Candidate,
-            Some("docs/design-docs/candidate"),
+            Some("docs/design/candidate"),
         ),
         (
             DocType::DesignDoc,
             Status::Implemented,
-            Some("docs/design-docs/implemented"),
+            Some("docs/design/implemented"),
         ),
         (
             DocType::DesignDoc,
             Status::Obsolete,
-            Some("docs/design-docs/obsolete"),
+            Some("docs/design/obsolete"),
         ),
         (
             DocType::DesignPatch,
             Status::Draft,
-            Some("docs/design-docs/draft"),
+            Some("docs/design/draft"),
         ),
         (
             DocType::DesignPatch,
             Status::Candidate,
-            Some("docs/design-docs/candidate"),
+            Some("docs/design/candidate"),
         ),
         (
             DocType::DesignPatch,
             Status::Implemented,
-            Some("docs/design-docs/implemented"),
+            Some("docs/design/implemented"),
         ),
         (
             DocType::DesignPatch,
             Status::Obsolete,
-            Some("docs/design-docs/obsolete"),
+            Some("docs/design/obsolete"),
         ),
         (
             DocType::DesignPatch,
             Status::ObsoleteMerged,
-            Some("docs/design-docs/obsolete"),
+            Some("docs/design/obsolete"),
         ),
-        (
-            DocType::ExecPlan,
-            Status::Draft,
-            Some("docs/exec-plans/draft"),
-        ),
-        (
-            DocType::ExecPlan,
-            Status::Active,
-            Some("docs/exec-plans/active"),
-        ),
-        (
-            DocType::ExecPlan,
-            Status::Completed,
-            Some("docs/exec-plans/archived"),
-        ),
-        (
-            DocType::ExecPlan,
-            Status::Abandoned,
-            Some("docs/exec-plans/archived"),
-        ),
-        (DocType::TaskSpec, Status::Draft, Some("specs/active")),
-        (DocType::TaskSpec, Status::Active, Some("specs/active")),
-        (DocType::TaskSpec, Status::Completed, Some("specs/archived")),
-        (DocType::TaskSpec, Status::Cancelled, Some("specs/archived")),
+        (DocType::ProjectSpec, Status::Active, Some("docs/specs")),
+        (DocType::OrgSpec, Status::Active, Some("docs/specs")),
         (DocType::Guideline, Status::Active, Some("docs/guidelines")),
-        (DocType::ProjectSpec, Status::Active, Some("specs")),
-        (DocType::OrgSpec, Status::Active, Some("specs")),
+        (DocType::ExecPlan, Status::Draft, None),
+        (DocType::ExecPlan, Status::Candidate, None),
+        (DocType::ExecPlan, Status::Closed, None),
+        (DocType::TaskSpec, Status::Draft, None),
+        (DocType::TaskSpec, Status::Candidate, None),
+        (DocType::TaskSpec, Status::Closed, None),
     ];
 
     for (doc_type, status, expected) in cases {
@@ -363,357 +320,190 @@ fn expected_directory_covers_all_valid_doc_type_status_pairs() {
 }
 
 #[test]
-fn validate_transition_allows_and_rejects_expected_moves() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-
-    let index = build_index(dir.path()).expect("index should load");
-    let patch = index
-        .documents
-        .get(&DocId::DesignPatch(1, 1))
-        .expect("patch should exist");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-    let guideline = index
-        .documents
-        .get(&DocId::Guideline("reliability".to_string()))
-        .expect("guideline should exist");
-
-    assert!(validate_transition(&index, design, Status::Implemented).is_ok());
-    assert!(validate_transition(&index, patch, Status::Obsolete).is_err());
-    assert!(validate_transition(&index, patch, Status::ObsoleteMerged).is_err());
-    assert!(validate_transition(&index, guideline, Status::Obsolete).is_err());
-}
-
-#[test]
-fn validate_transition_allows_legal_design_patch_moves() {
+fn validate_transition_uses_new_lifecycles() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/design-docs/draft/design-002-patch-01-draft-change.md",
-        "---\nid: design-002-patch-01\ntitle: \"Draft change\"\nstatus: draft\nparent: design-001\n---\n\n# Patch\n",
+        "docs/prd/draft/prd-billing.md",
+        "---\nid: prd-billing\ntitle: \"Billing\"\nstatus: draft\ncreated: 2026-03-25\n---\n\n# PRD\n",
     );
     write_markdown(
         dir.path(),
-        "docs/design-docs/candidate/design-002-patch-02-candidate-change.md",
-        "---\nid: design-002-patch-02\ntitle: \"Candidate change\"\nstatus: candidate\nparent: design-001\n---\n\n# Patch\n",
+        "docs/design/draft/design-billing.md",
+        "---\nid: design-billing\ntitle: \"Billing\"\nstatus: draft\ncreated: 2026-03-25\nprd: prd-billing\n---\n\n# Design\n",
     );
     write_markdown(
         dir.path(),
-        "docs/design-docs/implemented/design-002-patch-03-implemented-change.md",
-        "---\nid: design-002-patch-03\ntitle: \"Implemented change\"\nstatus: implemented\nparent: design-001\nmerged-into: design-001\n---\n\n# Patch\n",
+        "docs/design/candidate/design-auth-system-patch-01-cleanup.md",
+        "---\nid: design-auth-system-patch-01-cleanup\ntitle: \"Cleanup\"\nstatus: candidate\ncreated: 2026-03-25\nparent: design-auth-system\n---\n\n# Patch\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-billing/plan.md",
+        "---\nid: exec-billing\ntitle: \"Billing\"\nstatus: draft\ncreated: 2026-03-25\ndesign-docs:\n  - design-billing\n---\n\n# Exec\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-billing/task-01-add-invoice.md",
+        "---\nid: task-01\ntitle: \"Add invoice\"\nstatus: draft\ncreated: 2026-03-25\nexec-plan: exec-billing\n---\n\n# Task\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
-    let draft_patch = index
-        .documents
-        .get(&DocId::DesignPatch(2, 1))
-        .expect("draft patch should exist");
-    let candidate_patch = index
-        .documents
-        .get(&DocId::DesignPatch(2, 2))
-        .expect("candidate patch should exist");
-    let implemented_patch = index
-        .documents
-        .get(&DocId::DesignPatch(2, 3))
-        .expect("implemented patch should exist");
-
-    assert!(validate_transition(&index, draft_patch, Status::Candidate).is_ok());
-    assert!(validate_transition(&index, draft_patch, Status::Obsolete).is_ok());
-    assert!(validate_transition(&index, candidate_patch, Status::Implemented).is_ok());
-    assert!(validate_transition(&index, candidate_patch, Status::Obsolete).is_ok());
-    assert!(validate_transition(&index, implemented_patch, Status::ObsoleteMerged).is_ok());
-}
-
-#[test]
-fn validate_transition_covers_prd_exec_plan_and_task_spec_lifecycles() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/prd/draft/prd-002-draft.md",
-        "---\nid: prd-002\ntitle: \"Draft PRD\"\nstatus: draft\n---\n\n# PRD\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/draft/exec-002-auth-draft.md",
-        "---\nid: exec-002\ntitle: \"Draft Exec\"\nstatus: draft\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/prd/approved/prd-003-standalone.md",
-        "---\nid: prd-003\ntitle: \"Standalone PRD\"\nstatus: approved\n---\n\n# PRD\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-003-free-exec.md",
-        "---\nid: exec-003\ntitle: \"Free Exec\"\nstatus: active\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0002-draft-task.md",
-        "---\nid: task-0002\ntitle: \"Draft task\"\nstatus: draft\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let approved_prd = index
-        .documents
-        .get(&DocId::Prd(3))
-        .expect("approved prd should exist");
     let draft_prd = index
         .documents
-        .get(&DocId::Prd(2))
+        .get(&DocId::Prd("billing".to_string()))
         .expect("draft prd should exist");
-    let active_exec = index
+    let draft_design = index
         .documents
-        .get(&DocId::ExecPlan(3))
-        .expect("active exec should exist");
+        .get(&DocId::DesignDoc("billing".to_string()))
+        .expect("draft design should exist");
+    let patch = index
+        .documents
+        .get(&DocId::DesignPatch {
+            parent_slug: "auth-system".to_string(),
+            sequence: 1,
+            patch_slug: "cleanup".to_string(),
+        })
+        .expect("patch should exist");
     let draft_exec = index
         .documents
-        .get(&DocId::ExecPlan(2))
+        .get(&DocId::ExecPlan("billing".to_string()))
         .expect("draft exec should exist");
-    let active_task = index
-        .documents
-        .get(&DocId::TaskSpec(1))
-        .expect("active task should exist");
     let draft_task = index
         .documents
-        .get(&DocId::TaskSpec(2))
+        .get(&DocId::TaskSpec {
+            exec_slug: "billing".to_string(),
+            sequence: 1,
+        })
         .expect("draft task should exist");
 
     assert!(validate_transition(&index, draft_prd, Status::Approved).is_ok());
-    assert!(validate_transition(&index, approved_prd, Status::Obsolete).is_ok());
-    assert!(validate_transition(&index, approved_prd, Status::Draft).is_err());
-
-    assert!(validate_transition(&index, draft_exec, Status::Active).is_ok());
-    assert!(validate_transition(&index, active_exec, Status::Completed).is_ok());
-    assert!(validate_transition(&index, active_exec, Status::Abandoned).is_ok());
-    assert!(validate_transition(&index, active_exec, Status::Draft).is_err());
-
-    assert!(validate_transition(&index, draft_task, Status::Active).is_ok());
-    assert!(validate_transition(&index, draft_task, Status::Cancelled).is_ok());
-    assert!(validate_transition(&index, active_task, Status::Completed).is_ok());
-    assert!(validate_transition(&index, active_task, Status::Cancelled).is_ok());
-    assert!(validate_transition(&index, active_task, Status::Draft).is_err());
+    assert!(validate_transition(&index, draft_design, Status::Candidate).is_ok());
+    assert!(validate_transition(&index, patch, Status::Implemented).is_ok());
+    assert!(validate_transition(&index, draft_exec, Status::Candidate).is_ok());
+    assert!(validate_transition(&index, draft_task, Status::Candidate).is_ok());
+    assert!(validate_transition(&index, draft_task, Status::Closed).is_ok());
 }
 
 #[test]
-fn validate_transition_blocks_design_implementation_until_exec_plans_complete() {
+fn validate_transition_blocks_design_implementation_until_exec_is_closed() {
     let dir = temp_repo();
     valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-002-auth-followup.md",
-        "---\nid: exec-002\ntitle: \"Auth followup\"\nstatus: active\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
 
     let index = build_index(dir.path()).expect("index should load");
     let design = index
         .documents
-        .get(&DocId::DesignDoc(1))
+        .get(&DocId::DesignDoc("auth-system".to_string()))
         .expect("design should exist");
 
     assert!(validate_transition(&index, design, Status::Implemented).is_err());
 }
 
 #[test]
-fn validate_transition_allows_design_implementation_when_exec_plans_are_completed() {
+fn validate_transition_blocks_exec_close_until_tasks_are_closed() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+
+    let index = build_index(dir.path()).expect("index should load");
+    let exec = index
+        .documents
+        .get(&DocId::ExecPlan("auth-rollout".to_string()))
+        .expect("exec should exist");
+
+    assert!(validate_transition(&index, exec, Status::Closed).is_err());
+}
+
+#[test]
+fn validate_transition_allows_exec_close_when_tasks_are_closed() {
+    let dir = temp_repo();
+    closed_task_repo(&dir);
+
+    let index = build_index(dir.path()).expect("index should load");
+    let exec = index
+        .documents
+        .get(&DocId::ExecPlan("auth-rollout".to_string()))
+        .expect("exec should exist");
+
+    assert!(validate_transition(&index, exec, Status::Closed).is_ok());
+}
+
+#[test]
+fn next_patch_number_is_scoped_to_parent_design() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/exec-plans/archived/exec-002-auth-followup.md",
-        "---\nid: exec-002\ntitle: \"Auth followup\"\nstatus: completed\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-
-    assert!(validate_transition(&index, design, Status::Implemented).is_ok());
-}
-
-#[test]
-fn validate_transition_blocks_design_implementation_with_abandoned_exec_plan() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/archived/exec-002-auth-followup.md",
-        "---\nid: exec-002\ntitle: \"Auth followup\"\nstatus: abandoned\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-
-    assert!(validate_transition(&index, design, Status::Implemented).is_err());
-}
-
-#[test]
-fn next_id_uses_max_across_status_buckets() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/prd/approved/prd-001-one.md",
-        "---\nid: prd-001\ntitle: \"One\"\nstatus: approved\n---\n",
+        "docs/design/candidate/design-auth-system-patch-01-cleanup.md",
+        "---\nid: design-auth-system-patch-01-cleanup\ntitle: \"Cleanup\"\nstatus: candidate\ncreated: 2026-03-25\nparent: design-auth-system\n---\n\n# Patch\n",
     );
     write_markdown(
         dir.path(),
-        "docs/prd/obsolete/prd-005-five.md",
-        "---\nid: prd-005\ntitle: \"Five\"\nstatus: obsolete\n---\n",
-    );
-
-    let next = next_id(dir.path(), DocType::Prd).expect("next id should resolve");
-
-    assert_eq!(next, 6);
-}
-
-#[test]
-fn next_id_rejects_invalid_managed_documents() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/prd/approved/prd-001-one.md",
-        "---\nid: prd-001\ntitle: \"One\"\nstatus: approved\n---\n",
+        "docs/design/implemented/design-payments.md",
+        "---\nid: design-payments\ntitle: \"Payments\"\nstatus: implemented\ncreated: 2026-03-25\n---\n\n# Design\n",
     );
     write_markdown(
         dir.path(),
-        "docs/prd/approved/prd-007-bad.md",
-        "---\nid: prd-007\nstatus: approved\n---\n",
+        "docs/design/candidate/design-payments-patch-02-reconcile.md",
+        "---\nid: design-payments-patch-02-reconcile\ntitle: \"Reconcile\"\nstatus: candidate\ncreated: 2026-03-25\nparent: design-payments\n---\n\n# Patch\n",
     );
 
-    let error = next_id(dir.path(), DocType::Prd).expect_err("next id should fail");
-
-    assert!(error.to_string().contains("invalid managed entr"));
-}
-
-#[test]
-fn next_id_counts_design_doc_slug_starting_with_patch() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/candidate/design-007-patch-routing.md",
-        "---\nid: design-007\ntitle: \"Patch routing\"\nstatus: candidate\n---\n",
-    );
-
-    let next = next_id(dir.path(), DocType::DesignDoc).expect("next id should resolve");
-
-    assert_eq!(next, 8);
-}
-
-#[test]
-fn next_patch_number_is_scoped_to_parent() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/candidate/design-001-auth.md",
-        "---\nid: design-001\ntitle: \"Auth\"\nstatus: candidate\n---\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/candidate/design-002-billing.md",
-        "---\nid: design-002\ntitle: \"Billing\"\nstatus: candidate\n---\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-01-first-change.md",
-        "---\nid: design-001-patch-01\ntitle: \"First\"\nstatus: obsolete\nparent: design-001\n---\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/implemented/design-002-patch-03-billing-change.md",
-        "---\nid: design-002-patch-03\ntitle: \"Third\"\nstatus: implemented\nparent: design-002\n---\n",
-    );
-
-    let next = next_patch_number(dir.path(), 1).expect("next patch should resolve");
+    let next = next_patch_number(dir.path(), "auth-system").expect("next patch should resolve");
 
     assert_eq!(next, 2);
 }
 
 #[test]
-fn next_patch_number_rejects_invalid_managed_documents() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/candidate/design-001-auth.md",
-        "---\nid: design-001\ntitle: \"Auth\"\nstatus: candidate\n---\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-01-first-change.md",
-        "---\nid: design-001-patch-01\ntitle: \"First\"\nstatus: obsolete\nparent: design-001\n---\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-05-bad.md",
-        "---\nid: design-001-patch-05\nstatus: obsolete\nparent: design-001\n---\n",
-    );
-
-    let error = next_patch_number(dir.path(), 1).expect_err("next patch should fail");
-
-    assert!(error.to_string().contains("invalid managed entr"));
-}
-
-#[cfg(unix)]
-#[test]
-fn next_id_reports_traversal_errors() {
-    let dir = temp_repo();
-    write_markdown(
-        dir.path(),
-        "docs/prd/approved/prd-001-one.md",
-        "---\nid: prd-001\ntitle: \"One\"\nstatus: approved\n---\n",
-    );
-
-    let unreadable = dir.path().join("docs/prd/approved/blocked");
-    fs::create_dir_all(&unreadable).expect("blocked directory should exist");
-    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000))
-        .expect("permissions should update");
-
-    let result = next_id(dir.path(), DocType::Prd);
-
-    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o755))
-        .expect("permissions should restore");
-
-    assert!(result.is_err(), "expected traversal error, got {result:?}");
-}
-
-#[test]
-fn validate_index_requires_superseded_by_target_to_exist() {
+fn next_task_sequence_is_scoped_to_exec_plan() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/design-docs/obsolete/design-002-auth-v2.md",
-        "---\nid: design-002\ntitle: \"Auth v2\"\nstatus: obsolete\nsuperseded-by: design-999\n---\n\n# Design\n",
+        "docs/design/candidate/design-payments.md",
+        "---\nid: design-payments\ntitle: \"Payments\"\nstatus: candidate\ncreated: 2026-03-25\n---\n\n# Design\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-payments/plan.md",
+        "---\nid: exec-payments\ntitle: \"Payments\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-payments\n---\n\n# Exec\n",
+    );
+    write_markdown(
+        dir.path(),
+        "docs/exec-plans/exec-payments/task-03-reconcile-ledger.md",
+        "---\nid: task-03\ntitle: \"Reconcile ledger\"\nstatus: draft\ncreated: 2026-03-25\nexec-plan: exec-payments\n---\n\n# Task\n",
+    );
+
+    let next =
+        next_task_sequence(dir.path(), "auth-rollout").expect("next task sequence should resolve");
+
+    assert_eq!(next, 2);
+}
+
+#[test]
+fn ensure_unique_slug_rejects_existing_slug() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+
+    let error = ensure_unique_slug(dir.path(), DocType::DesignDoc, "auth-system")
+        .expect_err("slug should already exist");
+
+    assert!(error
+        .to_string()
+        .contains("slug `auth-system` is already in use"));
+}
+
+#[test]
+fn ensure_index_compliant_rejects_repository_level_violations() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+    write_markdown(
+        dir.path(),
+        "docs/design/obsolete/design-retired-auth.md",
+        "---\nid: design-retired-auth\ntitle: \"Retired Auth\"\nstatus: obsolete\ncreated: 2026-03-25\nsuperseded-by: design-missing\n---\n\n# Design\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("superseded-by design-999 does not exist")));
-}
-
-#[test]
-fn next_id_rejects_repository_validation_violations() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-002-auth-v2.md",
-        "---\nid: design-002\ntitle: \"Auth v2\"\nstatus: obsolete\nsuperseded-by: design-999\n---\n\n# Design\n",
-    );
-
-    let error = next_id(dir.path(), DocType::Prd).expect_err("next id should fail");
+    let error = ensure_index_compliant(&index).expect_err("index should be invalid");
 
     assert!(error
         .to_string()
@@ -721,443 +511,94 @@ fn next_id_rejects_repository_validation_violations() {
 }
 
 #[test]
-fn build_index_rejects_invalid_completion_criterion_id_format() {
+fn preview_transition_rejects_documents_missing_from_index() {
     let dir = temp_repo();
     valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0002-bad-criterion.md",
-        "---\nid: task-0002\ntitle: \"Bad criterion\"\nstatus: active\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: login\n    scenario: check\n    test: test_check\n---\n",
-    );
 
     let index = build_index(dir.path()).expect("index should load");
+    let existing = index
+        .documents
+        .get(&DocId::ExecPlan("auth-rollout".to_string()))
+        .expect("exec should exist")
+        .clone();
+    let missing = specmate::doc::Document {
+        id: DocId::ExecPlan("missing".to_string()),
+        path: dir.path().join("docs/exec-plans/exec-missing/plan.md"),
+        ..existing
+    };
 
-    assert!(index.invalid_entries.iter().any(|entry| {
-        entry
-            .path
-            .ends_with("specs/active/task-0002-bad-criterion.md")
-            && entry.reason.contains("cc-NNN")
+    let error =
+        preview_transition(&index, &missing, Status::Closed).expect_err("preview should fail");
+
+    assert!(format!("{error:#}").contains("document exec-missing is not present"));
+}
+
+#[test]
+fn validate_preview_reports_post_transition_violations() {
+    let dir = temp_repo();
+    valid_repo(&dir);
+
+    let index = build_index(dir.path()).expect("index should load");
+    let exec = index
+        .documents
+        .get(&DocId::ExecPlan("auth-rollout".to_string()))
+        .expect("exec should exist");
+    let preview = preview_transition(&index, exec, Status::Closed).expect("preview should build");
+    let violations = validate_preview(&preview);
+
+    assert!(violations.iter().any(|violation| {
+        violation
+            .message
+            .contains("exec-plan exec-auth-rollout has invalid status closed")
     }));
 }
 
 #[test]
-fn test_validate_transition_rejects_blocked_association_aware_moves() {
+fn association_summaries_reflect_related_documents() {
     let dir = temp_repo();
     valid_repo(&dir);
     write_markdown(
         dir.path(),
-        "docs/design-docs/draft/design-002-prd-draft.md",
-        "---\nid: design-002\ntitle: \"PRD draft\"\nstatus: draft\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-002-design-active.md",
-        "---\nid: exec-002\ntitle: \"Active exec\"\nstatus: active\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/implemented/design-003-patch-01-implemented.md",
-        "---\nid: design-003-patch-01\ntitle: \"Implemented patch\"\nstatus: implemented\nparent: design-001\n---\n\n# Patch\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-003-release.md",
-        "---\nid: exec-003\ntitle: \"Release\"\nstatus: active\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0003-release-draft.md",
-        "---\nid: task-0003\ntitle: \"Release draft\"\nstatus: draft\nexec-plan: exec-003\n---\n\n# Task\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-004-abandon.md",
-        "---\nid: exec-004\ntitle: \"Abandon\"\nstatus: active\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0004-abandon-active.md",
-        "---\nid: task-0004\ntitle: \"Abandon active\"\nstatus: active\nexec-plan: exec-004\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
+        "docs/design/candidate/design-auth-system-patch-01-cleanup.md",
+        "---\nid: design-auth-system-patch-01-cleanup\ntitle: \"Cleanup\"\nstatus: candidate\ncreated: 2026-03-25\nparent: design-auth-system\n---\n\n# Patch\n",
     );
 
     let index = build_index(dir.path()).expect("index should load");
     let prd = index
         .documents
-        .get(&DocId::Prd(1))
+        .get(&DocId::Prd("user-auth".to_string()))
         .expect("prd should exist");
     let design = index
         .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-    let patch = index
-        .documents
-        .get(&DocId::DesignPatch(3, 1))
-        .expect("patch should exist");
-    let release_exec = index
-        .documents
-        .get(&DocId::ExecPlan(3))
-        .expect("release exec should exist");
-    let abandon_exec = index
-        .documents
-        .get(&DocId::ExecPlan(4))
-        .expect("abandon exec should exist");
-
-    assert!(validate_transition(&index, prd, Status::Obsolete).is_err());
-    assert!(validate_transition(&index, design, Status::Implemented).is_err());
-    assert!(validate_transition(&index, design, Status::Obsolete).is_err());
-    assert!(validate_transition(&index, patch, Status::ObsoleteMerged).is_err());
-    assert!(validate_transition(&index, release_exec, Status::Completed).is_err());
-    assert!(validate_transition(&index, abandon_exec, Status::Abandoned).is_err());
-}
-
-#[test]
-fn test_validate_index_allows_later_bugfix_work_for_implemented_design() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/implemented/design-001-auth-system.md",
-        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: implemented\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-001-auth-rollout.md",
-        "---\nid: exec-001\ntitle: \"Auth rollout\"\nstatus: active\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(
-        violations
-            .iter()
-            .all(|violation| !violation.message.contains("design-doc")),
-        "{violations:#?}"
-    );
-    assert!(
-        violations
-            .iter()
-            .all(|violation| !violation.message.contains("exec-plan")),
-        "{violations:#?}"
-    );
-}
-
-#[test]
-fn test_validate_index_preserves_historical_association_links() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    fs::remove_file(
-        dir.path()
-            .join("docs/design-docs/candidate/design-001-auth-system.md"),
-    )
-    .expect("candidate design should be removable");
-    fs::remove_file(
-        dir.path()
-            .join("docs/exec-plans/active/exec-001-auth-rollout.md"),
-    )
-    .expect("active exec should be removable");
-    fs::remove_file(dir.path().join("specs/active/task-0001-implement-auth.md"))
-        .expect("active task should be removable");
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-auth-system.md",
-        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/archived/exec-001-auth-rollout.md",
-        "---\nid: exec-001\ntitle: \"Auth rollout\"\nstatus: abandoned\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/archived/task-0001-implement-auth.md",
-        "---\nid: task-0001\ntitle: \"Implement auth\"\nstatus: completed\nexec-plan: exec-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(
-        violations
-            .iter()
-            .all(|violation| !violation.message.contains("design-doc")),
-        "{violations:#?}"
-    );
-    assert!(
-        violations
-            .iter()
-            .all(|violation| !violation.message.contains("exec-plan")),
-        "{violations:#?}"
-    );
-}
-
-#[test]
-fn test_validate_index_rejects_live_direct_task_links_to_obsolete_designs() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    fs::remove_file(
-        dir.path()
-            .join("docs/design-docs/candidate/design-001-auth-system.md"),
-    )
-    .expect("candidate design should be removable");
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-auth-system.md",
-        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0002-direct-design-task.md",
-        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: active\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("design-doc design-001 is obsolete")));
-}
-
-#[test]
-fn test_validate_index_preserves_historical_direct_task_links_to_obsolete_designs() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    fs::remove_file(
-        dir.path()
-            .join("docs/design-docs/candidate/design-001-auth-system.md"),
-    )
-    .expect("candidate design should be removable");
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-auth-system.md",
-        "---\nid: design-001\ntitle: \"Auth System\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/archived/task-0002-direct-design-task.md",
-        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: completed\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(
-        violations.iter().all(|violation| !violation
-            .message
-            .contains("design-doc design-001 is obsolete")),
-        "{violations:#?}"
-    );
-}
-
-#[test]
-fn test_validate_index_rejects_stale_associated_references() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/prd/obsolete/prd-001-user-auth.md",
-        "---\nid: prd-001\ntitle: \"User Auth\"\nstatus: obsolete\n---\n\n# PRD\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-002-old-auth.md",
-        "---\nid: design-002\ntitle: \"Old Auth\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/active/exec-001-auth-rollout.md",
-        "---\nid: exec-001\ntitle: \"Auth rollout\"\nstatus: active\ndesign-doc: design-002\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/archived/exec-002-abandoned.md",
-        "---\nid: exec-002\ntitle: \"Abandoned\"\nstatus: abandoned\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0001-implement-auth.md",
-        "---\nid: task-0001\ntitle: \"Implement auth\"\nstatus: active\nexec-plan: exec-002\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let violations = validate_index(&index);
-
-    assert!(violations
-        .iter()
-        .any(|violation| violation.message.contains("prd prd-001 is obsolete")));
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("design-doc design-002 is obsolete")));
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("exec-plan exec-002 has invalid status abandoned")));
-}
-
-#[test]
-fn test_validate_preview_rejects_post_transition_repository_violation() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-
-    let index = build_index(dir.path()).expect("index should load");
-    let exec = index
-        .documents
-        .get(&DocId::ExecPlan(1))
-        .expect("exec should exist");
-    let preview =
-        preview_transition(&index, exec, Status::Abandoned).expect("preview should build");
-    let violations = validate_preview(&preview);
-
-    assert!(violations.iter().any(|violation| violation
-        .message
-        .contains("exec-plan exec-001 has invalid status abandoned")));
-}
-
-#[test]
-fn test_validate_preview_accepts_satisfied_association_aware_move() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/archived/exec-002-auth-complete.md",
-        "---\nid: exec-002\ntitle: \"Auth complete\"\nstatus: completed\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-    let preview =
-        preview_transition(&index, design, Status::Implemented).expect("preview should build");
-
-    assert!(validate_preview(&preview).is_empty());
-}
-
-#[test]
-fn test_validate_transition_blocks_design_obsolete_when_live_direct_task_exists() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "specs/active/task-0002-direct-design-task.md",
-        "---\nid: task-0002\ntitle: \"Direct design task\"\nstatus: active\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: task\n    test: test_task\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
-        .expect("design should exist");
-
-    assert!(validate_transition(&index, design, Status::Obsolete).is_err());
-}
-
-#[test]
-fn test_preview_transition_rejects_document_missing_from_index() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-
-    let index = build_index(dir.path()).expect("index should load");
-    let missing = index
-        .documents
-        .get(&DocId::ExecPlan(1))
-        .expect("exec should exist")
-        .clone();
-    let missing = specmate::doc::Document {
-        id: DocId::ExecPlan(999),
-        path: dir
-            .path()
-            .join("docs/exec-plans/active/exec-999-auth-rollout.md"),
-        ..missing
-    };
-
-    let error =
-        preview_transition(&index, &missing, Status::Completed).expect_err("preview should fail");
-    let message = format!("{error:#}");
-
-    assert!(message.contains("document exec-999 is not present in the current index"));
-}
-
-#[test]
-fn test_association_summaries_report_related_documents_target_statuses_and_terminal_states() {
-    let dir = temp_repo();
-    valid_repo(&dir);
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-002-auth-history.md",
-        "---\nid: design-002\ntitle: \"Auth history\"\nstatus: obsolete\nprd: prd-001\n---\n\n# Design\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-02-cleanup.md",
-        "---\nid: design-001-patch-02\ntitle: \"Cleanup\"\nstatus: obsolete\nparent: design-001\n---\n\n# Patch\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/design-docs/obsolete/design-001-patch-03-merged.md",
-        "---\nid: design-001-patch-03\ntitle: \"Merged\"\nstatus: obsolete:merged\nparent: design-001\nmerged-into: design-001\n---\n\n# Patch\n",
-    );
-    write_markdown(
-        dir.path(),
-        "docs/exec-plans/archived/exec-002-auth-complete.md",
-        "---\nid: exec-002\ntitle: \"Auth complete\"\nstatus: completed\ndesign-doc: design-001\n---\n\n# Exec\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/archived/task-0002-auth-complete.md",
-        "---\nid: task-0002\ntitle: \"Auth complete\"\nstatus: completed\nexec-plan: exec-002\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
-    );
-    write_markdown(
-        dir.path(),
-        "specs/archived/task-0003-direct-auth-follow-up.md",
-        "---\nid: task-0003\ntitle: \"Direct auth follow up\"\nstatus: cancelled\ndesign-doc: design-001\nguidelines:\n  - docs/guidelines/reliability.md\nboundaries:\n  allowed:\n    - src/**/*.rs\n  forbidden_patterns:\n    - specs/**\ncompletion_criteria:\n  - id: cc-001\n    scenario: auth compiles\n    test: test_auth\n---\n\n# Task\n",
-    );
-
-    let index = build_index(dir.path()).expect("index should load");
-    let prd = index
-        .documents
-        .get(&DocId::Prd(1))
-        .expect("prd should exist");
-    let design = index
-        .documents
-        .get(&DocId::DesignDoc(1))
+        .get(&DocId::DesignDoc("auth-system".to_string()))
         .expect("design should exist");
     let exec = index
         .documents
-        .get(&DocId::ExecPlan(2))
+        .get(&DocId::ExecPlan("auth-rollout".to_string()))
         .expect("exec should exist");
 
     let prd_summary = association_summaries(&index, prd)
         .into_iter()
         .find(|summary| summary.kind == AssociationKind::PrdDesignDocs)
         .expect("prd summary should exist");
-    assert_eq!(prd_summary.related.len(), 2);
-    assert!(!prd_summary.all_terminal());
+    assert_eq!(prd_summary.related.len(), 1);
 
     let design_summaries = association_summaries(&index, design);
     let patch_summary = design_summaries
         .iter()
         .find(|summary| summary.kind == AssociationKind::DesignDocPatches)
         .expect("patch summary should exist");
-    assert_eq!(patch_summary.related.len(), 3);
-    assert!(patch_summary.all_terminal());
+    assert_eq!(patch_summary.related.len(), 1);
     let exec_summary = design_summaries
         .iter()
         .find(|summary| summary.kind == AssociationKind::DesignDocExecPlans)
         .expect("exec summary should exist");
-    assert!(exec_summary.all_in_status(Status::Completed));
-    let direct_task_summary = design_summaries
-        .iter()
-        .find(|summary| summary.kind == AssociationKind::DesignDocTasks)
-        .expect("direct task summary should exist");
-    assert_eq!(direct_task_summary.related.len(), 1);
-    assert!(direct_task_summary.all_terminal());
+    assert_eq!(exec_summary.related.len(), 1);
 
     let task_summary = association_summaries(&index, exec)
         .into_iter()
         .find(|summary| summary.kind == AssociationKind::ExecPlanTasks)
         .expect("task summary should exist");
-    assert!(task_summary.all_in_status(Status::Completed));
-    assert!(task_summary.all_terminal());
+    assert_eq!(task_summary.related.len(), 1);
+    assert!(task_summary.all_in_status(Status::Candidate));
 }

@@ -1,6 +1,4 @@
-# specs/archived/
+# deprecated
 
-已到达终态的 Task Spec：`completed` 或 `cancelled`。
-
-通过每个文件 frontmatter 中的 `status` 字段区分。
-这些文件保留用于追溯，不要删除。
+Task Spec 不再存放于 `specs/archived/`。
+关闭后的任务仍与父 `plan.md` 一起保留在 `docs/exec-plans/exec-<slug>/` 中。

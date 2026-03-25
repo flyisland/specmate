@@ -9,6 +9,8 @@ struct RawFrontmatter {
     id: Option<String>,
     title: Option<String>,
     status: Option<String>,
+    created: Option<String>,
+    closed: Option<String>,
     module: Option<String>,
     prd: Option<String>,
     parent: Option<String>,
@@ -18,6 +20,8 @@ struct RawFrontmatter {
     superseded_by: Option<String>,
     #[serde(rename = "design-doc")]
     design_doc: Option<String>,
+    #[serde(rename = "design-docs")]
+    design_docs: Option<Vec<String>>,
     #[serde(rename = "exec-plan")]
     exec_plan: Option<String>,
     guidelines: Option<Vec<String>>,
@@ -67,12 +71,15 @@ pub fn parse_frontmatter(path: &Path, raw: &str) -> Result<Frontmatter> {
         id: parsed.id,
         title: parsed.title,
         status: parsed.status,
+        created: parsed.created,
+        closed: parsed.closed,
         module: parsed.module,
         prd: parsed.prd,
         parent: parsed.parent,
         merged_into: parsed.merged_into,
         superseded_by: parsed.superseded_by,
         design_doc: parsed.design_doc,
+        design_docs: parsed.design_docs.unwrap_or_default(),
         exec_plan: parsed.exec_plan,
         guidelines: parsed.guidelines.unwrap_or_default(),
         boundaries,

@@ -22,8 +22,13 @@ pub fn write_file(root: &Path, relative: &str, content: &str) {
 pub fn create_compliant_repo(root: &Path) {
     write_file(
         root,
-        "specs/project.md",
+        "docs/specs/project.md",
         "---\nid: project\nstatus: active\n---\n\n# Project\n",
+    );
+    write_file(
+        root,
+        "docs/specs/org.md",
+        "---\nid: org\nstatus: active\n---\n\n# Org\n",
     );
     write_file(
         root,
@@ -32,23 +37,23 @@ pub fn create_compliant_repo(root: &Path) {
     );
     write_file(
         root,
-        "docs/prd/approved/prd-001-core-checks.md",
-        "---\nid: prd-001\ntitle: \"Core Checks\"\nstatus: approved\n---\n\n# PRD\n",
+        "docs/prd/approved/prd-core-checks.md",
+        "---\nid: prd-core-checks\ntitle: \"Core Checks\"\nstatus: approved\ncreated: 2026-03-25\n---\n\n# PRD\n",
     );
     write_file(
         root,
-        "docs/design-docs/implemented/design-001-check-engine.md",
-        "---\nid: design-001\ntitle: \"Check Engine\"\nstatus: implemented\nprd: prd-001\n---\n\n# Design\n",
+        "docs/design/implemented/design-check-engine.md",
+        "---\nid: design-check-engine\ntitle: \"Check Engine\"\nstatus: implemented\ncreated: 2026-03-25\nprd: prd-core-checks\n---\n\n# Design\n",
     );
     write_file(
         root,
-        "docs/exec-plans/active/exec-001-build-check-engine.md",
-        "---\nid: exec-001\ntitle: \"Build Check Engine\"\nstatus: active\ndesign-doc: design-001\n---\n\n# Exec Plan\n",
+        "docs/exec-plans/exec-build-check-engine/plan.md",
+        "---\nid: exec-build-check-engine\ntitle: \"Build Check Engine\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-check-engine\n---\n\n# Exec Plan\n",
     );
     write_file(
         root,
-        "specs/active/task-0001-implement-check-engine.md",
-        "---\nid: task-0001\ntitle: \"Implement check engine\"\nstatus: active\nexec-plan: exec-001\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/lib.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"task passes\"\n    test: \"test_task\"\n---\n\n# Task\n",
+        "docs/exec-plans/exec-build-check-engine/task-01-implement-check-engine.md",
+        "---\nid: task-01\ntitle: \"Implement check engine\"\nstatus: candidate\ncreated: 2026-03-25\nexec-plan: exec-build-check-engine\nboundaries:\n  allowed:\n    - \"src/lib.rs\"\n  forbidden_patterns:\n    - \"docs/prd/**\"\n    - \"docs/design/**\"\n    - \"docs/guidelines/**\"\n    - \"docs/specs/**\"\n    - \"docs/exec-plans/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"task passes\"\n    test: \"test_task\"\n---\n\n# Task\n",
     );
     write_file(root, "src/lib.rs", "pub fn check_engine() {}\n");
     write_file(root, "src/main.rs", "fn main() {}\n");
@@ -58,8 +63,13 @@ pub fn create_compliant_repo(root: &Path) {
 pub fn create_status_repo(root: &Path) {
     write_file(
         root,
-        "specs/project.md",
+        "docs/specs/project.md",
         "---\nid: project\nstatus: active\n---\n\n# Project\n",
+    );
+    write_file(
+        root,
+        "docs/specs/org.md",
+        "---\nid: org\nstatus: active\n---\n\n# Org\n",
     );
     write_file(
         root,
@@ -68,63 +78,58 @@ pub fn create_status_repo(root: &Path) {
     );
     write_file(
         root,
-        "docs/prd/approved/prd-001-core-platform.md",
-        "---\nid: prd-001\ntitle: \"Core Platform\"\nstatus: approved\n---\n\n# PRD\n",
+        "docs/prd/approved/prd-core-platform.md",
+        "---\nid: prd-core-platform\ntitle: \"Core Platform\"\nstatus: approved\ncreated: 2026-03-25\n---\n\n# PRD\n",
     );
     write_file(
         root,
-        "docs/design-docs/implemented/design-001-core-platform.md",
-        "---\nid: design-001\ntitle: \"Core Platform\"\nstatus: implemented\nprd: prd-001\n---\n\n# Design\n",
+        "docs/design/implemented/design-core-platform.md",
+        "---\nid: design-core-platform\ntitle: \"Core Platform\"\nstatus: implemented\ncreated: 2026-03-25\nprd: prd-core-platform\n---\n\n# Design\n",
     );
     write_file(
         root,
-        "docs/design-docs/candidate/design-002-status-command.md",
-        "---\nid: design-002\ntitle: \"Status Command\"\nstatus: candidate\ndesign-doc: design-001\nprd: prd-001\n---\n\n# Design\n",
+        "docs/design/candidate/design-status-command.md",
+        "---\nid: design-status-command\ntitle: \"Status Command\"\nstatus: candidate\ncreated: 2026-03-25\nprd: prd-core-platform\n---\n\n# Design\n",
     );
     write_file(
         root,
-        "docs/design-docs/candidate/design-010-future-roadmap.md",
-        "---\nid: design-010\ntitle: \"Future Roadmap\"\nstatus: candidate\n---\n\n# Design\n",
+        "docs/design/candidate/design-future-roadmap.md",
+        "---\nid: design-future-roadmap\ntitle: \"Future Roadmap\"\nstatus: candidate\ncreated: 2026-03-25\n---\n\n# Design\n",
     );
     write_file(
         root,
-        "docs/design-docs/obsolete/design-001-patch-01-fix-links.md",
-        "---\nid: design-001-patch-01\ntitle: \"Fix Links\"\nstatus: obsolete\nparent: design-001\n---\n\n# Patch\n",
+        "docs/design/obsolete/design-core-platform-patch-01-fix-links.md",
+        "---\nid: design-core-platform-patch-01-fix-links\ntitle: \"Fix Links\"\nstatus: obsolete\ncreated: 2026-03-25\nparent: design-core-platform\n---\n\n# Patch\n",
     );
     write_file(
         root,
-        "docs/exec-plans/archived/exec-001-core-rollout.md",
-        "---\nid: exec-001\ntitle: \"Core Rollout\"\nstatus: completed\ndesign-doc: design-001\n---\n\n# Exec Plan\n",
+        "docs/exec-plans/exec-core-rollout/plan.md",
+        "---\nid: exec-core-rollout\ntitle: \"Core Rollout\"\nstatus: closed\ncreated: 2026-03-25\nclosed: 2026-03-25\ndesign-docs:\n  - design-core-platform\n---\n\n# Exec Plan\n",
     );
     write_file(
         root,
-        "docs/exec-plans/active/exec-002-status-rollout.md",
-        "---\nid: exec-002\ntitle: \"Status Rollout\"\nstatus: active\ndesign-doc: design-002\n---\n\n# Exec Plan\n",
+        "docs/exec-plans/exec-status-rollout/plan.md",
+        "---\nid: exec-status-rollout\ntitle: \"Status Rollout\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-status-command\n---\n\n# Exec Plan\n",
     );
     write_file(
         root,
-        "docs/exec-plans/active/exec-010-status-follow-up.md",
-        "---\nid: exec-010\ntitle: \"Status Follow Up\"\nstatus: active\ndesign-doc: design-002\n---\n\n# Exec Plan\n",
+        "docs/exec-plans/exec-status-follow-up/plan.md",
+        "---\nid: exec-status-follow-up\ntitle: \"Status Follow Up\"\nstatus: candidate\ncreated: 2026-03-25\ndesign-docs:\n  - design-status-command\n---\n\n# Exec Plan\n",
     );
     write_file(
         root,
-        "specs/archived/task-0001-complete-core-rollout.md",
-        "---\nid: task-0001\ntitle: \"Complete core rollout\"\nstatus: completed\nexec-plan: exec-001\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/core.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"done\"\n    test: \"test_done\"\n---\n\n# Task\n",
+        "docs/exec-plans/exec-core-rollout/task-01-complete-core-rollout.md",
+        "---\nid: task-01\ntitle: \"Complete core rollout\"\nstatus: closed\ncreated: 2026-03-25\nclosed: 2026-03-25\nexec-plan: exec-core-rollout\nboundaries:\n  allowed:\n    - \"src/core.rs\"\n  forbidden_patterns:\n    - \"docs/prd/**\"\n    - \"docs/design/**\"\n    - \"docs/guidelines/**\"\n    - \"docs/specs/**\"\n    - \"docs/exec-plans/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"done\"\n    test: \"test_done\"\n---\n\n# Task\n",
     );
     write_file(
         root,
-        "specs/active/task-0002-implement-status-dashboard.md",
-        "---\nid: task-0002\ntitle: \"Implement status dashboard\"\nstatus: active\nexec-plan: exec-002\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/status_dashboard.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"dashboard\"\n    test: \"test_dashboard\"\n---\n\n# Task\n",
+        "docs/exec-plans/exec-status-rollout/task-01-implement-status-dashboard.md",
+        "---\nid: task-01\ntitle: \"Implement status dashboard\"\nstatus: candidate\ncreated: 2026-03-25\nexec-plan: exec-status-rollout\nboundaries:\n  allowed:\n    - \"src/status_dashboard.rs\"\n  forbidden_patterns:\n    - \"docs/prd/**\"\n    - \"docs/design/**\"\n    - \"docs/guidelines/**\"\n    - \"docs/specs/**\"\n    - \"docs/exec-plans/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"dashboard\"\n    test: \"test_dashboard\"\n---\n\n# Task\n",
     );
     write_file(
         root,
-        "specs/active/task-0010-implement-status-follow-up.md",
-        "---\nid: task-0010\ntitle: \"Implement status follow up\"\nstatus: active\nexec-plan: exec-010\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/status_follow_up.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"follow up\"\n    test: \"test_follow_up\"\n---\n\n# Task\n",
-    );
-    write_file(
-        root,
-        "specs/archived/task-0011-cancelled-status-experiment.md",
-        "---\nid: task-0011\ntitle: \"Cancelled status experiment\"\nstatus: cancelled\nexec-plan: exec-010\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"src/status_experiment.rs\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"experiment\"\n    test: \"test_experiment\"\n---\n\n# Task\n",
+        "docs/exec-plans/exec-status-follow-up/task-01-implement-status-follow-up.md",
+        "---\nid: task-01\ntitle: \"Implement status follow up\"\nstatus: candidate\ncreated: 2026-03-25\nexec-plan: exec-status-follow-up\nboundaries:\n  allowed:\n    - \"src/status_follow_up.rs\"\n  forbidden_patterns:\n    - \"docs/prd/**\"\n    - \"docs/design/**\"\n    - \"docs/guidelines/**\"\n    - \"docs/specs/**\"\n    - \"docs/exec-plans/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"follow up\"\n    test: \"test_follow_up\"\n---\n\n# Task\n",
     );
     write_file(root, "src/lib.rs", "pub fn status() {}\n");
 }

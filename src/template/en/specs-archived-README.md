@@ -1,6 +1,4 @@
-# specs/archived/
+# deprecated
 
-Task Specs that have reached a terminal status: `completed` or `cancelled`.
-
-Check the `status` field in each file's frontmatter to see which it is.
-These files are kept for traceability — never delete them.
+Task Specs no longer live under `specs/archived/`.
+Closed tasks remain beside their parent `plan.md` under `docs/exec-plans/exec-<slug>/`.

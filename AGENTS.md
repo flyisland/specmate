@@ -26,22 +26,24 @@ specmate/
 │   └── cmd/
 │       └── init_test.rs
 ├── Cargo.toml
-└── specs/                   # specmate's own Task Specs (dogfooding)
-    ├── project.md
-    ├── active/
-    └── archived/
+└── docs/
+    ├── specs/               # project/org constraints
+    ├── design/              # design contracts
+    ├── exec-plans/          # dogfooded exec/task history
+    └── guidelines/          # always-injected guidance
 ```
 
 ## Core documents
 
 Read these before working on any task:
 
-- `specs/project.md` — technical constraints and coding conventions
-- `docs/design-docs/implemented/` — all current design contracts; codebase must
+- `docs/specs/project.md` — technical constraints and coding conventions
+- `docs/design/implemented/` — all current design contracts; codebase must
   be consistent with every doc in this directory
-- `docs/design-docs/candidate/design-006-cli-surface-roadmap.md` — roadmap for
+- `docs/design/draft/design-cli-surface-roadmap.md` — roadmap for
   planned CLI commands that are not implemented yet
-- The active Task Spec — defines intent, boundaries, and completion criteria
+- The relevant Task Spec under `docs/exec-plans/<exec-id>/` — defines intent,
+  boundaries, and completion criteria
 
 ## Guidelines — read when relevant
 
@@ -81,14 +83,13 @@ first, then embed it.
 
 | Type | Format | Example |
 |---|---|---|
-| PRD | `prd-001` | `prd-001-user-registration.md` |
-| Design Doc | `design-001` | `design-001-auth-system.md` |
-| Design Patch | `design-001-patch-01-<slug>` | `design-001-patch-01-remove-username.md` |
-| Exec Plan | `exec-001` | `exec-001-auth-impl.md` |
-| Task Spec | `task-0001` | `task-0001-implement-init-command.md` |
+| PRD | `prd-<slug>` | `prd-user-registration.md` |
+| Design Doc | `design-<slug>` | `design-auth-system.md` |
+| Design Patch | `design-<parent-slug>-patch-01-<slug>` | `design-auth-system-patch-01-remove-username.md` |
+| Exec Plan | `exec-<slug>` | `exec-auth-impl` |
+| Task Spec | `<exec-id>/task-01` | `exec-auth-impl/task-01` |
 
-Task Specs use four digits; all other types use three digits.
-Patch docs carry a two-digit sequence number.
+Task Specs and Design Patches use two-digit local sequence numbers.
 
 ## Status lifecycles
 
@@ -96,8 +97,10 @@ Patch docs carry a two-digit sequence number.
 PRD:          draft → approved → obsolete
 Design Doc:   draft → candidate → implemented → obsolete
               patch only: ... → obsolete:merged
-Exec Plan:    draft → active → completed | abandoned
-Task Spec:    draft → active → completed | cancelled
+Exec Plan:    draft ↔ candidate → closed
+              draft → closed
+Task Spec:    draft ↔ candidate → closed
+              draft → closed
 Guideline:    active (always, no transitions)
 ```
 
@@ -107,10 +110,9 @@ The subdirectory a file lives in reflects its status. `specmate move` handles
 file relocation atomically — never move files manually.
 
 ```
-docs/design-docs/implemented/   ← ls here = all current design contracts
+docs/design/implemented/        ← ls here = all current design contracts
 docs/guidelines/                ← all active guidelines
-specs/active/                   ← current task specs (draft + active)
-specs/archived/                 ← completed + cancelled
+docs/exec-plans/exec-*/         ← exec plan plus sibling task specs
 ```
 
 ## File ownership
@@ -121,8 +123,8 @@ specs/archived/                 ← completed + cancelled
 
 ## Running a Task Spec
 
-1. Read `specs/project.md` — confirm technical constraints
-2. Read relevant docs in `docs/design-docs/implemented/`
+1. Read `docs/specs/project.md` — confirm technical constraints
+2. Read relevant docs in `docs/design/implemented/`
 3. Read guidelines listed in the Task Spec's `guidelines` field (if any),
    and any additional guidelines from the table above that apply to this task
 4. Read the Task Spec — note `boundaries.allowed` and `completion_criteria`
@@ -130,4 +132,6 @@ specs/archived/                 ← completed + cancelled
 6. Run `cargo clippy -- -D warnings` and `cargo test` — both must pass
 7. All `completion_criteria` tests must pass before the task is considered done
 
-Do not modify any file under `specs/` during task execution.
+Do not modify managed documents under `docs/specs/`, `docs/design/`, or
+`docs/exec-plans/` during task execution unless the task explicitly exists to
+update them.

@@ -85,9 +85,9 @@ fn test_check_command_dispatches_to_requested_mode() {
     let (result, stdout, stderr) = run_check(
         &dir,
         Some(CheckCommand::Boundaries(BoundariesArgs {
-            task_id: "task-0001".to_string(),
+            task_id: "exec-build-check-engine/task-01".to_string(),
         })),
     );
     assert!(result.is_ok(), "boundaries check failed: {stderr}");
-    assert!(stdout.contains("check boundaries task-0001"));
+    assert!(stdout.contains("check boundaries exec-build-check-engine/task-01"));
 }

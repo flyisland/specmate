@@ -8,9 +8,9 @@
 
 ## 核心文档
 
-- `specs/project.md` — 项目技术约束
-- `docs/design-docs/implemented/` — 当前设计合约（ls = source of truth）
-- 当前 Task Spec — 定义意图、边界、验收条件
+- `docs/specs/project.md` — 项目技术约束
+- `docs/design/implemented/` — 当前设计合约（ls = source of truth）
+- 当前 Exec Plan 目录下的 Task Spec — 定义意图、边界、验收条件
 
 ## Guideline — 按需查阅
 
@@ -22,11 +22,11 @@
 
 ## 开始任何任务前
 
-1. 读 `specs/project.md` — 确认技术约束
-2. 读 `docs/design-docs/implemented/` 中的相关文档
+1. 读 `docs/specs/project.md` — 确认技术约束
+2. 读 `docs/design/implemented/` 中的相关文档
 3. 阅读 Task Spec `guidelines` 字段列出的文件（如有）
 4. 读 Task Spec — 注意 `boundaries.allowed` 和 `completion_criteria`
 5. 严格在 `boundaries.allowed` 范围内编码
 6. 所有 `completion_criteria` 测试通过后任务才算完成
 
-执行任务期间不得修改 `specs/` 目录下的任何文件。
+执行任务期间不得修改 `docs/specs/`、`docs/design/`、`docs/exec-plans/` 下的受管文档，除非该任务本身就是要更新这些文档。

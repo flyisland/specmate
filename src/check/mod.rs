@@ -111,8 +111,8 @@ pub fn run_boundaries(repo_root: &Path, task_id: &str) -> Result<CheckReport> {
     if document.doc_type != DocType::TaskSpec {
         bail!("{task_id} is not a Task Spec");
     }
-    if document.status != Status::Active {
-        bail!("{task_id} is not active");
+    if document.status != Status::Candidate {
+        bail!("{task_id} is not candidate");
     }
 
     let boundaries = document
@@ -328,7 +328,7 @@ fn conflicts_report(index: &DocumentIndex) -> CheckReport {
         .documents
         .values()
         .filter(|document| document.doc_type == DocType::TaskSpec)
-        .filter(|document| matches!(document.status, Status::Draft | Status::Active))
+        .filter(|document| document.status == Status::Candidate)
         .collect::<Vec<_>>();
     for (left_index, left) in candidates.iter().enumerate() {
         let left_allowed = match left.frontmatter.boundaries.as_ref() {
@@ -421,8 +421,12 @@ fn is_frontmatter_violation(message: &str) -> bool {
 
 fn is_reference_violation(message: &str) -> bool {
     message.starts_with("prd ")
-        || message.starts_with("design-doc ")
+        || message.starts_with("parent ")
+        || message.starts_with("merged-into ")
+        || message.starts_with("superseded-by ")
         || message.starts_with("exec-plan ")
+        || message.starts_with("design-docs ")
+        || message.starts_with("design patch ")
 }
 
 fn status_message(reason: &str) -> String {

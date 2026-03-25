@@ -4,9 +4,7 @@ mod frontmatter;
 mod id;
 mod types;
 
-#[allow(unused_imports)]
-pub use id::{next_id, next_patch_number};
-#[allow(unused_imports)]
+pub use id::{ensure_unique_slug, next_patch_number, next_task_sequence};
 pub use types::{
     AssociatedDocument, AssociationKind, AssociationSummary, Boundaries, CompletionCriterion,
     DocId, DocType, Document, DocumentIndex, Frontmatter, InvalidManagedEntry, Status,
@@ -18,25 +16,8 @@ use anyhow::{Context, Result};
 use frontmatter::parse_frontmatter;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
-
-#[derive(Debug, Clone, Copy)]
-enum FilenameFamily {
-    Prd,
-    Design,
-    Exec,
-    Task,
-}
-
-#[derive(Debug, Clone)]
-enum PathDisposition {
-    FilenameManaged(FilenameFamily),
-    FixedManaged(DocType),
-    GuidelineManaged(String),
-    InvalidManaged(String),
-    Ignored,
-}
 
 /// Builds a repository-wide index of managed documents.
 pub fn build_index(repo_root: &Path) -> Result<DocumentIndex> {
@@ -70,7 +51,7 @@ pub fn build_index(repo_root: &Path) -> Result<DocumentIndex> {
                 index.invalid_entries.push(InvalidManagedEntry {
                     path: entry.path().to_path_buf(),
                     reason,
-                })
+                });
             }
             disposition => match load_document_from_path(&repo_root, relative, disposition) {
                 Ok(document) => {
@@ -105,33 +86,28 @@ pub fn build_compliant_index(repo_root: &Path) -> Result<DocumentIndex> {
     Ok(index)
 }
 
-/// Resolves the expected relative directory for a `(DocType, Status)` pair.
+/// Resolves the expected relative directory for a `(DocType, Status)` pair when directory=status applies.
 pub fn expected_directory(doc_type: DocType, status: Status) -> Option<&'static str> {
     match (doc_type, status) {
         (DocType::Prd, Status::Draft) => Some("docs/prd/draft"),
         (DocType::Prd, Status::Approved) => Some("docs/prd/approved"),
         (DocType::Prd, Status::Obsolete) => Some("docs/prd/obsolete"),
-        (DocType::DesignDoc, Status::Draft) => Some("docs/design-docs/draft"),
-        (DocType::DesignDoc, Status::Candidate) => Some("docs/design-docs/candidate"),
-        (DocType::DesignDoc, Status::Implemented) => Some("docs/design-docs/implemented"),
-        (DocType::DesignDoc, Status::Obsolete) => Some("docs/design-docs/obsolete"),
-        (DocType::DesignPatch, Status::Draft) => Some("docs/design-docs/draft"),
-        (DocType::DesignPatch, Status::Candidate) => Some("docs/design-docs/candidate"),
-        (DocType::DesignPatch, Status::Implemented) => Some("docs/design-docs/implemented"),
-        (DocType::DesignPatch, Status::Obsolete) => Some("docs/design-docs/obsolete"),
-        (DocType::DesignPatch, Status::ObsoleteMerged) => Some("docs/design-docs/obsolete"),
-        (DocType::ExecPlan, Status::Draft) => Some("docs/exec-plans/draft"),
-        (DocType::ExecPlan, Status::Active) => Some("docs/exec-plans/active"),
-        (DocType::ExecPlan, Status::Completed) => Some("docs/exec-plans/archived"),
-        (DocType::ExecPlan, Status::Abandoned) => Some("docs/exec-plans/archived"),
-        (DocType::TaskSpec, Status::Draft) => Some("specs/active"),
-        (DocType::TaskSpec, Status::Active) => Some("specs/active"),
-        (DocType::TaskSpec, Status::Completed) => Some("specs/archived"),
-        (DocType::TaskSpec, Status::Cancelled) => Some("specs/archived"),
-        (DocType::Guideline, Status::Active) => Some("docs/guidelines"),
-        (DocType::ProjectSpec, Status::Active) | (DocType::OrgSpec, Status::Active) => {
-            Some("specs")
+        (DocType::DesignDoc, Status::Draft) | (DocType::DesignPatch, Status::Draft) => {
+            Some("docs/design/draft")
         }
+        (DocType::DesignDoc, Status::Candidate) | (DocType::DesignPatch, Status::Candidate) => {
+            Some("docs/design/candidate")
+        }
+        (DocType::DesignDoc, Status::Implemented) | (DocType::DesignPatch, Status::Implemented) => {
+            Some("docs/design/implemented")
+        }
+        (DocType::DesignDoc, Status::Obsolete)
+        | (DocType::DesignPatch, Status::Obsolete)
+        | (DocType::DesignPatch, Status::ObsoleteMerged) => Some("docs/design/obsolete"),
+        (DocType::ProjectSpec, Status::Active) | (DocType::OrgSpec, Status::Active) => {
+            Some("docs/specs")
+        }
+        (DocType::Guideline, Status::Active) => Some("docs/guidelines"),
         _ => None,
     }
 }
@@ -140,10 +116,12 @@ pub fn expected_directory(doc_type: DocType, status: Status) -> Option<&'static 
 pub fn is_terminal_status(doc_type: DocType, status: Status) -> bool {
     match doc_type {
         DocType::Prd => status == Status::Obsolete,
-        DocType::DesignDoc => status == Status::Obsolete,
-        DocType::DesignPatch => matches!(status, Status::Obsolete | Status::ObsoleteMerged),
-        DocType::ExecPlan => matches!(status, Status::Completed | Status::Abandoned),
-        DocType::TaskSpec => matches!(status, Status::Completed | Status::Cancelled),
+        DocType::DesignDoc => matches!(status, Status::Implemented | Status::Obsolete),
+        DocType::DesignPatch => matches!(
+            status,
+            Status::Implemented | Status::Obsolete | Status::ObsoleteMerged
+        ),
+        DocType::ExecPlan | DocType::TaskSpec => status == Status::Closed,
         DocType::ProjectSpec | DocType::OrgSpec | DocType::Guideline => status == Status::Active,
     }
 }
@@ -185,6 +163,7 @@ pub fn association_summaries(
 ) -> Vec<AssociationSummary> {
     let owner = document.id.clone();
     let owner_id = owner.as_string();
+
     match document.doc_type {
         DocType::Prd => vec![AssociationSummary {
             kind: AssociationKind::PrdDesignDocs,
@@ -218,25 +197,14 @@ pub fn association_summaries(
                     .documents
                     .values()
                     .filter(|candidate| candidate.doc_type == DocType::ExecPlan)
-                    .filter(|candidate| {
-                        candidate.frontmatter.design_doc.as_deref() == Some(owner_id.as_str())
-                    })
+                    .filter(|candidate| candidate.frontmatter.design_docs.contains(&owner_id))
                     .map(associated_document)
                     .collect(),
             },
             AssociationSummary {
                 kind: AssociationKind::DesignDocTasks,
                 owner,
-                related: index
-                    .documents
-                    .values()
-                    .filter(|candidate| candidate.doc_type == DocType::TaskSpec)
-                    .filter(|candidate| candidate.frontmatter.exec_plan.is_none())
-                    .filter(|candidate| {
-                        candidate.frontmatter.design_doc.as_deref() == Some(owner_id.as_str())
-                    })
-                    .map(associated_document)
-                    .collect(),
+                related: Vec::new(),
             },
         ],
         DocType::ExecPlan => vec![AssociationSummary {
@@ -262,22 +230,6 @@ pub fn preview_transition(
     document: &Document,
     to: Status,
 ) -> Result<DocumentIndex> {
-    let expected = expected_directory(document.doc_type, to).ok_or_else(|| {
-        DocumentModelError::InvalidField {
-            path: document.path.clone(),
-            field: "status",
-            message: format!("no directory mapping for {} {}", document.doc_type, to),
-        }
-    })?;
-    let file_name = document
-        .path
-        .file_name()
-        .ok_or_else(|| DocumentModelError::InvalidField {
-            path: document.path.clone(),
-            field: "path",
-            message: "missing file name".to_string(),
-        })?;
-
     let mut preview = index.clone();
     let entry = preview.documents.get_mut(&document.id).ok_or_else(|| {
         DocumentModelError::InvalidField {
@@ -289,9 +241,9 @@ pub fn preview_transition(
             ),
         }
     })?;
-    entry.status = to;
-    entry.path = preview.repo_root.join(expected).join(file_name);
 
+    entry.status = to;
+    entry.path = expected_path_for_document(&preview.repo_root, entry, to)?;
     Ok(preview)
 }
 
@@ -302,24 +254,22 @@ pub fn validate_preview(index: &DocumentIndex) -> Vec<ValidationViolation> {
 
 /// Validates whether a status transition is legal for a loaded document.
 pub fn validate_transition(index: &DocumentIndex, document: &Document, to: Status) -> Result<()> {
-    let doc_type = document.doc_type;
-    let from = document.status;
-    let legal = match doc_type {
+    let legal = match document.doc_type {
         DocType::Prd => matches!(
-            (from, to),
+            (document.status, to),
             (Status::Draft, Status::Approved)
                 | (Status::Approved, Status::Obsolete)
                 | (Status::Draft, Status::Obsolete)
         ),
         DocType::DesignDoc => matches!(
-            (from, to),
+            (document.status, to),
             (Status::Draft, Status::Candidate)
                 | (Status::Candidate, Status::Implemented)
                 | (Status::Candidate, Status::Obsolete)
                 | (Status::Implemented, Status::Obsolete)
         ),
         DocType::DesignPatch => matches!(
-            (from, to),
+            (document.status, to),
             (Status::Draft, Status::Candidate)
                 | (Status::Draft, Status::Obsolete)
                 | (Status::Candidate, Status::Implemented)
@@ -327,31 +277,32 @@ pub fn validate_transition(index: &DocumentIndex, document: &Document, to: Statu
                 | (Status::Implemented, Status::ObsoleteMerged)
         ),
         DocType::ExecPlan => matches!(
-            (from, to),
-            (Status::Draft, Status::Active)
-                | (Status::Active, Status::Completed)
-                | (Status::Active, Status::Abandoned)
+            (document.status, to),
+            (Status::Draft, Status::Closed)
+                | (Status::Draft, Status::Candidate)
+                | (Status::Candidate, Status::Draft)
+                | (Status::Candidate, Status::Closed)
         ),
         DocType::TaskSpec => matches!(
-            (from, to),
-            (Status::Draft, Status::Active)
-                | (Status::Active, Status::Completed)
-                | (Status::Active, Status::Cancelled)
-                | (Status::Draft, Status::Cancelled)
+            (document.status, to),
+            (Status::Draft, Status::Closed)
+                | (Status::Draft, Status::Candidate)
+                | (Status::Candidate, Status::Draft)
+                | (Status::Candidate, Status::Closed)
         ),
         DocType::ProjectSpec | DocType::OrgSpec | DocType::Guideline => false,
     };
 
-    if legal {
-        validate_transition_gate(index, document, to)
-    } else {
-        Err(DocumentModelError::IllegalTransition {
-            doc_type: doc_type.as_str(),
-            from: from.to_string(),
+    if !legal {
+        return Err(DocumentModelError::IllegalTransition {
+            doc_type: document.doc_type.as_str(),
+            from: document.status.to_string(),
             to: to.to_string(),
         }
-        .into())
+        .into());
     }
+
+    validate_transition_gate(index, document, to)
 }
 
 /// Performs repository-level validation that depends on multiple loaded documents.
@@ -361,13 +312,13 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
     for document in index.documents.values() {
         let frontmatter = &document.frontmatter;
 
-        if let DocType::DesignPatch = document.doc_type {
+        if document.doc_type == DocType::DesignPatch {
             match frontmatter.parent.as_deref().and_then(parse_reference_id) {
-                Some(parent_id @ DocId::DesignDoc(_)) => {
-                    if !index.documents.contains_key(&parent_id) {
+                Some(reference @ DocId::DesignDoc(_)) => {
+                    if !index.documents.contains_key(&reference) {
                         violations.push(ValidationViolation {
                             path: document.path.clone(),
-                            message: format!("parent {} does not exist", parent_id),
+                            message: format!("parent {} does not exist", reference),
                         });
                     }
                 }
@@ -419,13 +370,7 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
 
         validate_relationships(index, document, &mut violations);
 
-        if matches!(document.doc_type, DocType::TaskSpec) {
-            if frontmatter.exec_plan.is_some() && frontmatter.design_doc.is_some() {
-                violations.push(ValidationViolation {
-                    path: document.path.clone(),
-                    message: "TaskSpec must not declare both exec-plan and design-doc".to_string(),
-                });
-            }
+        if document.doc_type == DocType::TaskSpec {
             let mut seen = BTreeSet::new();
             for criterion in &frontmatter.completion_criteria {
                 if !is_completion_criterion_id(&criterion.id) {
@@ -441,22 +386,6 @@ pub fn validate_index(index: &DocumentIndex) -> Vec<ValidationViolation> {
                     violations.push(ValidationViolation {
                         path: document.path.clone(),
                         message: format!("duplicate completion criterion id {}", criterion.id),
-                    });
-                }
-            }
-            for guideline in &frontmatter.guidelines {
-                let absolute = index.repo_root.join(guideline.trim());
-                let matching = index
-                    .documents
-                    .values()
-                    .find(|candidate| candidate.path == absolute);
-                if !matches!(matching.map(|doc| doc.doc_type), Some(DocType::Guideline)) {
-                    violations.push(ValidationViolation {
-                        path: document.path.clone(),
-                        message: format!(
-                            "guideline path {} does not resolve to a Guideline",
-                            guideline
-                        ),
                     });
                 }
             }
@@ -518,8 +447,8 @@ fn associated_document(document: &Document) -> AssociatedDocument {
 }
 
 fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Status) -> Result<()> {
-    match (document.doc_type, document.status, to) {
-        (DocType::Prd, _, Status::Obsolete) => {
+    match (document.doc_type, to) {
+        (DocType::Prd, Status::Obsolete) => {
             let prd_id = document.id.as_string();
             if let Some(blocking_design) = index.documents.values().find(|candidate| {
                 candidate.doc_type == DocType::DesignDoc
@@ -535,12 +464,12 @@ fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Stat
                 );
             }
         }
-        (DocType::DesignDoc, Status::Candidate, Status::Implemented) => {
+        (DocType::DesignDoc, Status::Implemented) => {
             let design_id = document.id.as_string();
             if let Some(blocking_plan) = index.documents.values().find(|candidate| {
                 candidate.doc_type == DocType::ExecPlan
-                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
-                    && candidate.status != Status::Completed
+                    && candidate.frontmatter.design_docs.contains(&design_id)
+                    && candidate.status != Status::Closed
             }) {
                 return invalid_transition_field(
                     document,
@@ -551,12 +480,12 @@ fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Stat
                 );
             }
         }
-        (DocType::DesignDoc, _, Status::Obsolete) => {
+        (DocType::DesignDoc, Status::Obsolete) => {
             let design_id = document.id.as_string();
             if let Some(blocking_plan) = index.documents.values().find(|candidate| {
                 candidate.doc_type == DocType::ExecPlan
                     && is_live_status(candidate.doc_type, candidate.status)
-                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
+                    && candidate.frontmatter.design_docs.contains(&design_id)
             }) {
                 return invalid_transition_field(
                     document,
@@ -566,22 +495,8 @@ fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Stat
                     ),
                 );
             }
-            if let Some(blocking_task) = index.documents.values().find(|candidate| {
-                candidate.doc_type == DocType::TaskSpec
-                    && candidate.frontmatter.exec_plan.is_none()
-                    && is_live_status(candidate.doc_type, candidate.status)
-                    && candidate.frontmatter.design_doc.as_deref() == Some(design_id.as_str())
-            }) {
-                return invalid_transition_field(
-                    document,
-                    format!(
-                        "cannot transition to obsolete while {} is {}",
-                        blocking_task.id, blocking_task.status
-                    ),
-                );
-            }
         }
-        (DocType::DesignPatch, Status::Implemented, Status::ObsoleteMerged) => {
+        (DocType::DesignPatch, Status::ObsoleteMerged) => {
             match document
                 .frontmatter
                 .merged_into
@@ -591,47 +506,31 @@ fn validate_transition_gate(index: &DocumentIndex, document: &Document, to: Stat
                 Some(reference @ DocId::DesignDoc(_)) => {
                     if !index.documents.contains_key(&reference) {
                         return invalid_transition_field(
-                            document,
-                            format!("cannot transition to obsolete:merged because merged-into {reference} does not exist"),
-                        );
+                        document,
+                        format!(
+                            "cannot transition to obsolete:merged because merged-into {reference} does not exist"
+                        ),
+                    );
                     }
                 }
-                _ => {
-                    return invalid_transition_field(
-                        document,
-                        "cannot transition to obsolete:merged without a valid merged-into Design Doc"
-                            .to_string(),
-                    );
-                }
+                _ => return invalid_transition_field(
+                    document,
+                    "cannot transition to obsolete:merged without a valid merged-into Design Doc"
+                        .to_string(),
+                ),
             }
         }
-        (DocType::ExecPlan, Status::Active, Status::Completed) => {
+        (DocType::ExecPlan, Status::Closed) => {
             let exec_id = document.id.as_string();
             if let Some(blocking_task) = index.documents.values().find(|candidate| {
                 candidate.doc_type == DocType::TaskSpec
                     && candidate.frontmatter.exec_plan.as_deref() == Some(exec_id.as_str())
-                    && candidate.status != Status::Completed
+                    && candidate.status != Status::Closed
             }) {
                 return invalid_transition_field(
                     document,
                     format!(
-                        "cannot transition to completed while {} is {}",
-                        blocking_task.id, blocking_task.status
-                    ),
-                );
-            }
-        }
-        (DocType::ExecPlan, Status::Active, Status::Abandoned) => {
-            let exec_id = document.id.as_string();
-            if let Some(blocking_task) = index.documents.values().find(|candidate| {
-                candidate.doc_type == DocType::TaskSpec
-                    && is_live_status(candidate.doc_type, candidate.status)
-                    && candidate.frontmatter.exec_plan.as_deref() == Some(exec_id.as_str())
-            }) {
-                return invalid_transition_field(
-                    document,
-                    format!(
-                        "cannot transition to abandoned while {} is {}",
+                        "cannot transition to closed while {} is {}",
                         blocking_task.id, blocking_task.status
                     ),
                 );
@@ -659,24 +558,24 @@ fn validate_relationships(
 ) {
     let frontmatter = &document.frontmatter;
 
-    if let Some(design_doc) = frontmatter.design_doc.as_deref() {
-        match parse_reference_id(design_doc) {
-            Some(reference @ DocId::DesignDoc(_)) => match index.documents.get(&reference) {
+    if let Some(prd) = frontmatter.prd.as_deref() {
+        match parse_reference_id(prd) {
+            Some(reference @ DocId::Prd(_)) => match index.documents.get(&reference) {
                 Some(target)
                     if !(is_live_status(document.doc_type, document.status)
                         && target.status == Status::Obsolete) => {}
                 Some(_) => violations.push(ValidationViolation {
                     path: document.path.clone(),
-                    message: format!("design-doc {} is obsolete", reference),
+                    message: format!("prd {} is obsolete", reference),
                 }),
                 None => violations.push(ValidationViolation {
                     path: document.path.clone(),
-                    message: format!("design-doc {} does not exist", reference),
+                    message: format!("prd {} does not exist", reference),
                 }),
             },
             _ => violations.push(ValidationViolation {
                 path: document.path.clone(),
-                message: format!("design-doc must reference a Design Doc, found {design_doc}"),
+                message: format!("prd must reference a PRD, found {prd}"),
             }),
         }
     }
@@ -686,13 +585,10 @@ fn validate_relationships(
             Some(reference @ DocId::ExecPlan(_)) => match index.documents.get(&reference) {
                 Some(target)
                     if !(is_live_status(document.doc_type, document.status)
-                        && target.status == Status::Abandoned) => {}
-                Some(target) => violations.push(ValidationViolation {
+                        && target.status == Status::Closed) => {}
+                Some(_) => violations.push(ValidationViolation {
                     path: document.path.clone(),
-                    message: format!(
-                        "exec-plan {} has invalid status {}",
-                        reference, target.status
-                    ),
+                    message: format!("exec-plan {} has invalid status closed", reference),
                 }),
                 None => violations.push(ValidationViolation {
                     path: document.path.clone(),
@@ -706,39 +602,134 @@ fn validate_relationships(
         }
     }
 
-    if matches!(document.doc_type, DocType::TaskSpec)
-        && frontmatter.exec_plan.is_some()
-        && frontmatter.design_doc.is_some()
-    {
-        violations.push(ValidationViolation {
-            path: document.path.clone(),
-            message: "TaskSpec must not declare both exec-plan and design-doc".to_string(),
-        });
+    for guideline in &frontmatter.guidelines {
+        match parse_guideline_reference(guideline) {
+            Some(reference) => {
+                let guideline_id = DocId::Guideline(reference);
+                if !index.documents.contains_key(&guideline_id) {
+                    violations.push(ValidationViolation {
+                        path: document.path.clone(),
+                        message: format!(
+                            "guideline {} does not resolve to a Guideline",
+                            guideline.trim()
+                        ),
+                    });
+                }
+            }
+            None => violations.push(ValidationViolation {
+                path: document.path.clone(),
+                message: format!(
+                    "guideline {} does not resolve to a Guideline",
+                    guideline.trim()
+                ),
+            }),
+        }
     }
 
-    if matches!(document.doc_type, DocType::DesignDoc) {
-        if let Some(prd) = frontmatter.prd.as_deref() {
-            match parse_reference_id(prd) {
-                Some(reference @ DocId::Prd(_)) => match index.documents.get(&reference) {
+    if document.doc_type == DocType::ExecPlan {
+        if frontmatter.design_docs.is_empty() {
+            violations.push(ValidationViolation {
+                path: document.path.clone(),
+                message: "design-docs must contain at least one reference".to_string(),
+            });
+        }
+
+        let mut refs = BTreeSet::new();
+        for raw in &frontmatter.design_docs {
+            if !refs.insert(raw.clone()) {
+                violations.push(ValidationViolation {
+                    path: document.path.clone(),
+                    message: format!("duplicate design-docs reference {}", raw),
+                });
+                continue;
+            }
+
+            match parse_reference_id(raw) {
+                Some(reference @ DocId::DesignDoc(_)) => match index.documents.get(&reference) {
                     Some(target)
-                        if !(is_live_status(document.doc_type, document.status)
-                            && target.status == Status::Obsolete) => {}
-                    Some(_) => violations.push(ValidationViolation {
+                        if target.status == Status::Candidate
+                            || target.status == Status::Implemented => {}
+                    Some(target) => violations.push(ValidationViolation {
                         path: document.path.clone(),
-                        message: format!("prd {} is obsolete", reference),
+                        message: format!(
+                            "design-docs reference {} has invalid status {}",
+                            reference, target.status
+                        ),
                     }),
                     None => violations.push(ValidationViolation {
                         path: document.path.clone(),
-                        message: format!("prd {} does not exist", reference),
+                        message: format!("design-docs reference {} does not exist", reference),
                     }),
                 },
+                Some(reference @ DocId::DesignPatch { .. }) => {
+                    match index.documents.get(&reference) {
+                        Some(target)
+                            if target.status == Status::Candidate
+                                || target.status == Status::Implemented => {}
+                        Some(target) => violations.push(ValidationViolation {
+                            path: document.path.clone(),
+                            message: format!(
+                                "design-docs reference {} has invalid status {}",
+                                reference, target.status
+                            ),
+                        }),
+                        None => violations.push(ValidationViolation {
+                            path: document.path.clone(),
+                            message: format!("design-docs reference {} does not exist", reference),
+                        }),
+                    }
+                }
                 _ => violations.push(ValidationViolation {
                     path: document.path.clone(),
-                    message: format!("prd must reference a PRD, found {prd}"),
+                    message: format!(
+                        "design-docs entry {} must reference a Design Doc or Design Patch",
+                        raw
+                    ),
                 }),
             }
         }
+
+        for raw in &frontmatter.design_docs {
+            if let Some(DocId::DesignPatch { parent_slug, .. }) = parse_reference_id(raw) {
+                let parent = DocId::DesignDoc(parent_slug.clone()).as_string();
+                if !frontmatter.design_docs.contains(&parent) {
+                    violations.push(ValidationViolation {
+                        path: document.path.clone(),
+                        message: format!(
+                            "design patch {} requires parent design {} in design-docs",
+                            raw, parent
+                        ),
+                    });
+                }
+            }
+
+            if let Some(DocId::DesignDoc(slug)) = parse_reference_id(raw) {
+                if slug.starts_with("design-principles-") {
+                    // unreachable because parse_reference_id strips prefix, handled below
+                    let _ = slug;
+                }
+            }
+        }
     }
+
+    if document.doc_type == DocType::TaskSpec && frontmatter.exec_plan.is_none() {
+        violations.push(ValidationViolation {
+            path: document.path.clone(),
+            message: "TaskSpec must belong to an Exec Plan".to_string(),
+        });
+    }
+}
+
+#[derive(Debug, Clone)]
+enum PathDisposition {
+    Prd,
+    Design,
+    ExecPlan { exec_slug: String },
+    Task { exec_slug: String },
+    FixedManaged(DocType),
+    GuidelineManaged(String),
+    InvalidManaged(String),
+    Ignored,
 }
 
 fn classify_path(relative: &Path) -> PathDisposition {
@@ -756,24 +747,24 @@ fn classify_path(relative: &Path) -> PathDisposition {
     }
 
     match parts.as_slice() {
-        [specs, file] if specs == "specs" && file == "project.md" => {
+        [docs, specs, file] if docs == "docs" && specs == "specs" && file == "project.md" => {
             PathDisposition::FixedManaged(DocType::ProjectSpec)
         }
-        [specs, file] if specs == "specs" && file == "org.md" => {
+        [docs, specs, file] if docs == "docs" && specs == "specs" && file == "org.md" => {
             PathDisposition::FixedManaged(DocType::OrgSpec)
-        }
-        [specs, bucket, file]
-            if specs == "specs"
-                && matches!(bucket.as_str(), "active" | "archived")
-                && file.ends_with(".md") =>
-        {
-            PathDisposition::FilenameManaged(FilenameFamily::Task)
         }
         [docs, guidelines, file]
             if docs == "docs" && guidelines == "guidelines" && file.ends_with(".md") =>
         {
-            let slug = file.trim_end_matches(".md").to_string();
-            PathDisposition::GuidelineManaged(slug)
+            PathDisposition::GuidelineManaged(file.trim_end_matches(".md").to_string())
+        }
+        [docs, guidelines, obsolete, file]
+            if docs == "docs"
+                && guidelines == "guidelines"
+                && obsolete == "obsolete"
+                && file.ends_with(".md") =>
+        {
+            PathDisposition::GuidelineManaged(format!("obsolete/{}", file.trim_end_matches(".md")))
         }
         [docs, prd, bucket, file]
             if docs == "docs"
@@ -781,26 +772,48 @@ fn classify_path(relative: &Path) -> PathDisposition {
                 && matches!(bucket.as_str(), "draft" | "approved" | "obsolete")
                 && file.ends_with(".md") =>
         {
-            PathDisposition::FilenameManaged(FilenameFamily::Prd)
+            PathDisposition::Prd
         }
-        [docs, design_docs, bucket, file]
+        [docs, design, bucket, file]
             if docs == "docs"
-                && design_docs == "design-docs"
+                && design == "design"
                 && matches!(
                     bucket.as_str(),
                     "draft" | "candidate" | "implemented" | "obsolete"
                 )
                 && file.ends_with(".md") =>
         {
-            PathDisposition::FilenameManaged(FilenameFamily::Design)
+            PathDisposition::Design
         }
-        [docs, exec_plans, bucket, file]
+        [docs, exec_plans, exec_dir, file]
             if docs == "docs"
                 && exec_plans == "exec-plans"
-                && matches!(bucket.as_str(), "draft" | "active" | "archived")
-                && file.ends_with(".md") =>
+                && file == "plan.md"
+                && exec_dir.starts_with("exec-") =>
         {
-            PathDisposition::FilenameManaged(FilenameFamily::Exec)
+            PathDisposition::ExecPlan {
+                exec_slug: exec_dir.trim_start_matches("exec-").to_string(),
+            }
+        }
+        [docs, exec_plans, exec_dir, file]
+            if docs == "docs"
+                && exec_plans == "exec-plans"
+                && exec_dir.starts_with("exec-")
+                && file.ends_with(".md")
+                && file != "plan.md"
+                && !file.ends_with("-report.md") =>
+        {
+            PathDisposition::Task {
+                exec_slug: exec_dir.trim_start_matches("exec-").to_string(),
+            }
+        }
+        [docs, exec_plans, exec_dir, file]
+            if docs == "docs"
+                && exec_plans == "exec-plans"
+                && exec_dir.starts_with("exec-")
+                && file.ends_with("-report.md") =>
+        {
+            PathDisposition::Ignored
         }
         _ if file_name.ends_with(".md") && is_under_managed_root(&parts) => {
             PathDisposition::InvalidManaged(format!(
@@ -817,14 +830,11 @@ fn is_under_managed_root(parts: &[String]) -> bool {
     if parts.is_empty() {
         return false;
     }
-    if parts[0] == "specs" {
-        return true;
-    }
     parts.len() >= 2
         && parts[0] == "docs"
         && matches!(
             parts[1].as_str(),
-            "guidelines" | "prd" | "design-docs" | "exec-plans"
+            "guidelines" | "specs" | "prd" | "design" | "exec-plans"
         )
 }
 
@@ -839,7 +849,10 @@ fn load_document_from_path(
     let frontmatter = parse_frontmatter(relative, &raw)?;
 
     let (doc_type, canonical_id) = match disposition {
-        PathDisposition::FilenameManaged(family) => parse_filename_managed(relative, family)?,
+        PathDisposition::Prd => parse_prd_id(relative)?,
+        PathDisposition::Design => parse_design_id(relative)?,
+        PathDisposition::ExecPlan { exec_slug } => (DocType::ExecPlan, DocId::ExecPlan(exec_slug)),
+        PathDisposition::Task { exec_slug } => parse_task_id(relative, &exec_slug)?,
         PathDisposition::FixedManaged(doc_type) => {
             let id = match doc_type {
                 DocType::ProjectSpec => DocId::ProjectSpec,
@@ -853,7 +866,9 @@ fn load_document_from_path(
             };
             (doc_type, id)
         }
-        PathDisposition::GuidelineManaged(slug) => (DocType::Guideline, DocId::Guideline(slug)),
+        PathDisposition::GuidelineManaged(relative_id) => {
+            (DocType::Guideline, DocId::Guideline(relative_id))
+        }
         PathDisposition::InvalidManaged(reason) => {
             return Err(DocumentModelError::InvalidField {
                 path: relative.to_path_buf(),
@@ -872,7 +887,7 @@ fn load_document_from_path(
 
     validate_frontmatter(relative, doc_type, &canonical_id, &frontmatter)?;
     let status = parse_status(relative, doc_type, &frontmatter)?;
-    validate_directory(relative, doc_type, status)?;
+    validate_directory(relative, doc_type, &canonical_id, status)?;
 
     Ok(Document {
         id: canonical_id,
@@ -888,88 +903,103 @@ fn load_document_from_path(
     })
 }
 
-fn parse_filename_managed(relative: &Path, family: FilenameFamily) -> Result<(DocType, DocId)> {
-    let stem = relative
-        .file_stem()
-        .and_then(|stem| stem.to_str())
+fn parse_prd_id(relative: &Path) -> Result<(DocType, DocId)> {
+    let stem = file_stem(relative)?;
+    let slug = stem
+        .strip_prefix("prd-")
+        .filter(|slug| valid_slug(slug))
         .ok_or_else(|| DocumentModelError::InvalidFilename {
             path: relative.to_path_buf(),
-            doc_type: "unknown",
+            doc_type: DocType::Prd.as_str(),
         })?;
-    let parts: Vec<&str> = stem.split('-').collect();
-    match family {
-        FilenameFamily::Prd => {
-            if parts.len() < 3
-                || parts[0] != "prd"
-                || !is_fixed_digits(parts[1], 3)
-                || !valid_slug(&parts[2..])
-            {
-                return Err(DocumentModelError::InvalidFilename {
+    Ok((DocType::Prd, DocId::Prd(slug.to_string())))
+}
+
+fn parse_design_id(relative: &Path) -> Result<(DocType, DocId)> {
+    let stem = file_stem(relative)?;
+    let remainder =
+        stem.strip_prefix("design-")
+            .ok_or_else(|| DocumentModelError::InvalidFilename {
+                path: relative.to_path_buf(),
+                doc_type: "DesignDoc/DesignPatch",
+            })?;
+
+    if let Some((parent_slug, rest)) = remainder.split_once("-patch-") {
+        let (sequence_raw, patch_slug) =
+            rest.split_once('-')
+                .ok_or_else(|| DocumentModelError::InvalidFilename {
                     path: relative.to_path_buf(),
-                    doc_type: DocType::Prd.as_str(),
-                }
-                .into());
+                    doc_type: DocType::DesignPatch.as_str(),
+                })?;
+        let sequence = parse_local_sequence(sequence_raw).ok_or_else(|| {
+            DocumentModelError::InvalidFilename {
+                path: relative.to_path_buf(),
+                doc_type: DocType::DesignPatch.as_str(),
             }
-            let id = parts[1].parse::<u32>()?;
-            Ok((DocType::Prd, DocId::Prd(id)))
-        }
-        FilenameFamily::Exec => {
-            if parts.len() < 3
-                || parts[0] != "exec"
-                || !is_fixed_digits(parts[1], 3)
-                || !valid_slug(&parts[2..])
-            {
-                return Err(DocumentModelError::InvalidFilename {
-                    path: relative.to_path_buf(),
-                    doc_type: DocType::ExecPlan.as_str(),
-                }
-                .into());
+        })?;
+        if !valid_slug(parent_slug) || !valid_slug(patch_slug) {
+            return Err(DocumentModelError::InvalidFilename {
+                path: relative.to_path_buf(),
+                doc_type: DocType::DesignPatch.as_str(),
             }
-            let id = parts[1].parse::<u32>()?;
-            Ok((DocType::ExecPlan, DocId::ExecPlan(id)))
+            .into());
         }
-        FilenameFamily::Task => {
-            if parts.len() < 3
-                || parts[0] != "task"
-                || !is_fixed_digits(parts[1], 4)
-                || !valid_slug(&parts[2..])
-            {
-                return Err(DocumentModelError::InvalidFilename {
-                    path: relative.to_path_buf(),
-                    doc_type: DocType::TaskSpec.as_str(),
-                }
-                .into());
-            }
-            let id = parts[1].parse::<u32>()?;
-            Ok((DocType::TaskSpec, DocId::TaskSpec(id)))
-        }
-        FilenameFamily::Design => {
-            if parts.len() >= 5
-                && parts[0] == "design"
-                && is_fixed_digits(parts[1], 3)
-                && parts[2] == "patch"
-                && is_fixed_digits(parts[3], 2)
-                && valid_slug(&parts[4..])
-            {
-                let id = parts[1].parse::<u32>()?;
-                let patch = parts[3].parse::<u8>()?;
-                Ok((DocType::DesignPatch, DocId::DesignPatch(id, patch)))
-            } else if parts.len() >= 3
-                && parts[0] == "design"
-                && is_fixed_digits(parts[1], 3)
-                && valid_slug(&parts[2..])
-            {
-                let id = parts[1].parse::<u32>()?;
-                Ok((DocType::DesignDoc, DocId::DesignDoc(id)))
-            } else {
-                Err(DocumentModelError::InvalidFilename {
-                    path: relative.to_path_buf(),
-                    doc_type: "DesignDoc/DesignPatch",
-                }
-                .into())
-            }
-        }
+        return Ok((
+            DocType::DesignPatch,
+            DocId::DesignPatch {
+                parent_slug: parent_slug.to_string(),
+                sequence,
+                patch_slug: patch_slug.to_string(),
+            },
+        ));
     }
+
+    if !valid_slug(remainder) {
+        return Err(DocumentModelError::InvalidFilename {
+            path: relative.to_path_buf(),
+            doc_type: DocType::DesignDoc.as_str(),
+        }
+        .into());
+    }
+
+    Ok((DocType::DesignDoc, DocId::DesignDoc(remainder.to_string())))
+}
+
+fn parse_task_id(relative: &Path, exec_slug: &str) -> Result<(DocType, DocId)> {
+    let stem = file_stem(relative)?;
+    let remainder =
+        stem.strip_prefix("task-")
+            .ok_or_else(|| DocumentModelError::InvalidFilename {
+                path: relative.to_path_buf(),
+                doc_type: DocType::TaskSpec.as_str(),
+            })?;
+    let (sequence_raw, task_slug) =
+        remainder
+            .split_once('-')
+            .ok_or_else(|| DocumentModelError::InvalidFilename {
+                path: relative.to_path_buf(),
+                doc_type: DocType::TaskSpec.as_str(),
+            })?;
+    let sequence =
+        parse_local_sequence(sequence_raw).ok_or_else(|| DocumentModelError::InvalidFilename {
+            path: relative.to_path_buf(),
+            doc_type: DocType::TaskSpec.as_str(),
+        })?;
+    if !valid_slug(task_slug) {
+        return Err(DocumentModelError::InvalidFilename {
+            path: relative.to_path_buf(),
+            doc_type: DocType::TaskSpec.as_str(),
+        }
+        .into());
+    }
+
+    Ok((
+        DocType::TaskSpec,
+        DocId::TaskSpec {
+            exec_slug: exec_slug.to_string(),
+            sequence,
+        },
+    ))
 }
 
 fn validate_frontmatter(
@@ -1000,10 +1030,10 @@ fn validate_frontmatter(
         }
         DocType::ProjectSpec | DocType::OrgSpec => {
             let found = require_field(relative, "id", frontmatter.id.as_deref())?;
-            if found != canonical_id.as_string() {
+            if found != canonical_id.frontmatter_id() {
                 return Err(DocumentModelError::IdMismatch {
                     path: relative.to_path_buf(),
-                    expected: canonical_id.as_string(),
+                    expected: canonical_id.frontmatter_id(),
                     found: found.to_string(),
                 }
                 .into());
@@ -1011,81 +1041,156 @@ fn validate_frontmatter(
         }
         _ => {
             let found = require_field(relative, "id", frontmatter.id.as_deref())?;
-            if found != canonical_id.as_string() {
+            if found != canonical_id.frontmatter_id() {
                 return Err(DocumentModelError::IdMismatch {
                     path: relative.to_path_buf(),
-                    expected: canonical_id.as_string(),
+                    expected: canonical_id.frontmatter_id(),
                     found: found.to_string(),
                 }
                 .into());
             }
             require_non_empty(relative, "title", frontmatter.title.as_deref())?;
+            require_non_empty(relative, "created", frontmatter.created.as_deref())?;
+            validate_date_field(relative, "created", frontmatter.created.as_deref())?;
         }
     }
 
-    match doc_type {
-        DocType::DesignPatch => {
-            require_field(relative, "parent", frontmatter.parent.as_deref())?;
+    if matches!(doc_type, DocType::ExecPlan | DocType::TaskSpec) {
+        if frontmatter.closed.is_some() {
+            validate_date_field(relative, "closed", frontmatter.closed.as_deref())?;
         }
-        DocType::TaskSpec if frontmatter.status.as_deref() == Some("active") => {
-            let boundaries = frontmatter.boundaries.as_ref().ok_or_else(|| {
-                DocumentModelError::MissingField {
+    } else if frontmatter.closed.is_some() {
+        return Err(DocumentModelError::InvalidField {
+            path: relative.to_path_buf(),
+            field: "closed",
+            message: "closed is only allowed on ExecPlan and TaskSpec".to_string(),
+        }
+        .into());
+    }
+
+    if doc_type == DocType::DesignPatch {
+        require_field(relative, "parent", frontmatter.parent.as_deref())?;
+    }
+
+    if matches!(doc_type, DocType::ExecPlan)
+        && !frontmatter.design_docs.is_empty()
+        && frontmatter.design_doc.is_some()
+    {
+        return Err(DocumentModelError::InvalidField {
+            path: relative.to_path_buf(),
+            field: "design-docs",
+            message: "ExecPlan must not declare both design-doc and design-docs".to_string(),
+        }
+        .into());
+    }
+
+    if doc_type == DocType::TaskSpec && frontmatter.exec_plan.is_none() {
+        return Err(DocumentModelError::MissingField {
+            path: relative.to_path_buf(),
+            field: "exec-plan",
+        }
+        .into());
+    }
+
+    if doc_type == DocType::TaskSpec && frontmatter.design_doc.is_some() {
+        return Err(DocumentModelError::InvalidField {
+            path: relative.to_path_buf(),
+            field: "design-doc",
+            message: "TaskSpec must not declare design-doc in the new model".to_string(),
+        }
+        .into());
+    }
+
+    if doc_type == DocType::TaskSpec && frontmatter.status.as_deref() == Some("candidate") {
+        let boundaries =
+            frontmatter
+                .boundaries
+                .as_ref()
+                .ok_or_else(|| DocumentModelError::MissingField {
                     path: relative.to_path_buf(),
                     field: "boundaries",
-                }
-            })?;
-            if boundaries.allowed.is_empty() {
-                return Err(DocumentModelError::InvalidField {
-                    path: relative.to_path_buf(),
-                    field: "boundaries.allowed",
-                    message: "must contain at least one pattern".to_string(),
-                }
-                .into());
+                })?;
+        if boundaries.allowed.is_empty() {
+            return Err(DocumentModelError::InvalidField {
+                path: relative.to_path_buf(),
+                field: "boundaries.allowed",
+                message: "must contain at least one pattern".to_string(),
             }
+            .into());
+        }
+        for required in [
+            "docs/prd/**",
+            "docs/design/**",
+            "docs/guidelines/**",
+            "docs/specs/**",
+            "docs/exec-plans/**",
+        ] {
             if !boundaries
                 .forbidden_patterns
                 .iter()
-                .any(|pattern| pattern == "specs/**")
+                .any(|pattern| pattern == required)
             {
                 return Err(DocumentModelError::InvalidField {
                     path: relative.to_path_buf(),
                     field: "boundaries.forbidden_patterns",
-                    message: "must include specs/**".to_string(),
+                    message: format!("must include {required}"),
                 }
                 .into());
             }
-            if frontmatter.completion_criteria.is_empty() {
+        }
+        if frontmatter.completion_criteria.is_empty() {
+            return Err(DocumentModelError::InvalidField {
+                path: relative.to_path_buf(),
+                field: "completion_criteria",
+                message: "must contain at least one criterion".to_string(),
+            }
+            .into());
+        }
+        for criterion in &frontmatter.completion_criteria {
+            if criterion.id.trim().is_empty()
+                || criterion.scenario.trim().is_empty()
+                || criterion.test.trim().is_empty()
+            {
                 return Err(DocumentModelError::InvalidField {
                     path: relative.to_path_buf(),
                     field: "completion_criteria",
-                    message: "must contain at least one criterion".to_string(),
+                    message: "each criterion must include non-empty id, scenario, and test"
+                        .to_string(),
                 }
                 .into());
             }
-            for criterion in &frontmatter.completion_criteria {
-                if criterion.id.trim().is_empty()
-                    || criterion.scenario.trim().is_empty()
-                    || criterion.test.trim().is_empty()
-                {
-                    return Err(DocumentModelError::InvalidField {
-                        path: relative.to_path_buf(),
-                        field: "completion_criteria",
-                        message: "each criterion must include non-empty id, scenario, and test"
-                            .to_string(),
-                    }
-                    .into());
+            if !is_completion_criterion_id(&criterion.id) {
+                return Err(DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "completion_criteria.id",
+                    message: format!("{} must use cc-NNN format", criterion.id.trim()),
                 }
-                if !is_completion_criterion_id(&criterion.id) {
-                    return Err(DocumentModelError::InvalidField {
-                        path: relative.to_path_buf(),
-                        field: "completion_criteria.id",
-                        message: format!("{} must use cc-NNN format", criterion.id.trim()),
-                    }
-                    .into());
-                }
+                .into());
             }
         }
-        _ => {}
+    }
+
+    if matches!(doc_type, DocType::ExecPlan | DocType::TaskSpec)
+        && frontmatter.status.as_deref() == Some("closed")
+        && frontmatter.closed.is_none()
+    {
+        return Err(DocumentModelError::MissingField {
+            path: relative.to_path_buf(),
+            field: "closed",
+        }
+        .into());
+    }
+
+    if matches!(doc_type, DocType::ExecPlan | DocType::TaskSpec)
+        && frontmatter.status.as_deref() != Some("closed")
+        && frontmatter.closed.is_some()
+    {
+        return Err(DocumentModelError::InvalidField {
+            path: relative.to_path_buf(),
+            field: "closed",
+            message: "must be absent unless status is closed".to_string(),
+        }
+        .into());
     }
 
     if matches!(doc_type, DocType::DesignPatch)
@@ -1117,13 +1222,11 @@ fn parse_status(relative: &Path, doc_type: DocType, frontmatter: &Frontmatter) -
         (DocType::DesignPatch, "obsolete") => Ok(Status::Obsolete),
         (DocType::DesignPatch, "obsolete:merged") => Ok(Status::ObsoleteMerged),
         (DocType::ExecPlan, "draft") => Ok(Status::Draft),
-        (DocType::ExecPlan, "active") => Ok(Status::Active),
-        (DocType::ExecPlan, "completed") => Ok(Status::Completed),
-        (DocType::ExecPlan, "abandoned") => Ok(Status::Abandoned),
+        (DocType::ExecPlan, "candidate") => Ok(Status::Candidate),
+        (DocType::ExecPlan, "closed") => Ok(Status::Closed),
         (DocType::TaskSpec, "draft") => Ok(Status::Draft),
-        (DocType::TaskSpec, "active") => Ok(Status::Active),
-        (DocType::TaskSpec, "completed") => Ok(Status::Completed),
-        (DocType::TaskSpec, "cancelled") => Ok(Status::Cancelled),
+        (DocType::TaskSpec, "candidate") => Ok(Status::Candidate),
+        (DocType::TaskSpec, "closed") => Ok(Status::Closed),
         (DocType::ProjectSpec | DocType::OrgSpec, "active") => Ok(Status::Active),
         _ => Err(DocumentModelError::InvalidStatus {
             path: relative.to_path_buf(),
@@ -1134,24 +1237,96 @@ fn parse_status(relative: &Path, doc_type: DocType, frontmatter: &Frontmatter) -
     }
 }
 
-fn validate_directory(relative: &Path, doc_type: DocType, status: Status) -> Result<()> {
-    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
-    let expected =
-        expected_directory(doc_type, status).ok_or_else(|| DocumentModelError::InvalidField {
-            path: relative.to_path_buf(),
-            field: "status",
-            message: format!("no directory mapping for {} {}", doc_type, status),
-        })?;
-    let actual = path_to_unix(parent);
-    if actual != expected {
-        return Err(DocumentModelError::InvalidField {
-            path: relative.to_path_buf(),
-            field: "path",
-            message: format!("expected directory {expected}, found {actual}"),
+fn validate_directory(
+    relative: &Path,
+    doc_type: DocType,
+    canonical_id: &DocId,
+    status: Status,
+) -> Result<()> {
+    match doc_type {
+        DocType::ExecPlan => {
+            let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+            let expected = format!("docs/exec-plans/{}", canonical_id.as_string());
+            let actual = path_to_unix(parent);
+            if actual != expected {
+                return Err(DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "path",
+                    message: format!("expected directory {expected}, found {actual}"),
+                }
+                .into());
+            }
         }
-        .into());
+        DocType::TaskSpec => {
+            let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+            let exec_dir = canonical_id
+                .exec_slug()
+                .map(|slug| format!("docs/exec-plans/exec-{slug}"))
+                .ok_or_else(|| DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "path",
+                    message: "task id is missing exec slug".to_string(),
+                })?;
+            let actual = path_to_unix(parent);
+            if actual != exec_dir {
+                return Err(DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "path",
+                    message: format!("expected directory {exec_dir}, found {actual}"),
+                }
+                .into());
+            }
+        }
+        _ => {
+            let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+            let expected = expected_directory(doc_type, status).ok_or_else(|| {
+                DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "status",
+                    message: format!("no directory mapping for {} {}", doc_type, status),
+                }
+            })?;
+            let actual = path_to_unix(parent);
+            if actual != expected {
+                return Err(DocumentModelError::InvalidField {
+                    path: relative.to_path_buf(),
+                    field: "path",
+                    message: format!("expected directory {expected}, found {actual}"),
+                }
+                .into());
+            }
+        }
     }
     Ok(())
+}
+
+fn expected_path_for_document(
+    repo_root: &Path,
+    document: &Document,
+    to: Status,
+) -> Result<PathBuf> {
+    let file_name = document
+        .path
+        .file_name()
+        .ok_or_else(|| DocumentModelError::InvalidField {
+            path: document.path.clone(),
+            field: "path",
+            message: "missing file name".to_string(),
+        })?;
+
+    match document.doc_type {
+        DocType::ExecPlan | DocType::TaskSpec => Ok(document.path.clone()),
+        _ => {
+            let expected = expected_directory(document.doc_type, to).ok_or_else(|| {
+                DocumentModelError::InvalidField {
+                    path: document.path.clone(),
+                    field: "status",
+                    message: format!("no directory mapping for {} {}", document.doc_type, to),
+                }
+            })?;
+            Ok(repo_root.join(expected).join(file_name))
+        }
+    }
 }
 
 fn require_field<'a>(path: &Path, field: &'static str, value: Option<&'a str>) -> Result<&'a str> {
@@ -1174,40 +1349,154 @@ fn require_non_empty(path: &Path, field: &'static str, value: Option<&str>) -> R
     require_field(path, field, value).map(|_| ())
 }
 
-fn valid_slug(parts: &[&str]) -> bool {
-    if parts.is_empty() || parts.len() > 5 {
-        return false;
+fn validate_date_field(path: &Path, field: &'static str, value: Option<&str>) -> Result<()> {
+    let value = require_field(path, field, value)?;
+    if !valid_date(value) {
+        return Err(DocumentModelError::InvalidField {
+            path: path.to_path_buf(),
+            field,
+            message: format!("{value} must use valid YYYY-MM-DD form"),
+        }
+        .into());
     }
-    parts.iter().all(|part| {
-        let mut chars = part.chars();
-        matches!(chars.next(), Some(first) if first.is_ascii_lowercase())
-            && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
-    })
+    Ok(())
 }
 
-fn is_fixed_digits(value: &str, digits: usize) -> bool {
-    value.len() == digits && value.chars().all(|ch| ch.is_ascii_digit())
+fn valid_date(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    if parts.len() != 3
+        || parts[0].len() != 4
+        || parts[1].len() != 2
+        || parts[2].len() != 2
+        || !parts
+            .iter()
+            .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return false;
+    }
+
+    let year = parts[0].parse::<u32>().ok();
+    let month = parts[1].parse::<u32>().ok();
+    let day = parts[2].parse::<u32>().ok();
+    let (Some(year), Some(month), Some(day)) = (year, month, day) else {
+        return false;
+    };
+
+    if !(1..=12).contains(&month) || day == 0 {
+        return false;
+    }
+
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => return false,
+    };
+
+    day <= days_in_month
+}
+
+fn is_leap_year(year: u32) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
+fn file_stem(path: &Path) -> Result<&str> {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| {
+            DocumentModelError::InvalidFilename {
+                path: path.to_path_buf(),
+                doc_type: "unknown",
+            }
+            .into()
+        })
+}
+
+fn valid_slug(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    !parts.is_empty()
+        && parts.iter().all(|part| {
+            let mut chars = part.chars();
+            matches!(chars.next(), Some(first) if first.is_ascii_lowercase())
+                && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        })
+}
+
+fn parse_local_sequence(value: &str) -> Option<u32> {
+    if value.len() < 2 || !value.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    value.parse::<u32>().ok().filter(|number| *number > 0)
 }
 
 fn is_completion_criterion_id(value: &str) -> bool {
     let parts: Vec<&str> = value.trim().split('-').collect();
-    matches!(parts.as_slice(), ["cc", digits] if is_fixed_digits(digits, 3))
+    matches!(parts.as_slice(), ["cc", digits] if digits.len() == 3 && digits.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 fn parse_reference_id(raw: &str) -> Option<DocId> {
-    let parts: Vec<&str> = raw.split('-').collect();
-    match parts.as_slice() {
-        ["prd", id] if is_fixed_digits(id, 3) => id.parse().ok().map(DocId::Prd),
-        ["design", id] if is_fixed_digits(id, 3) => id.parse().ok().map(DocId::DesignDoc),
-        ["design", id, "patch", patch] if is_fixed_digits(id, 3) && is_fixed_digits(patch, 2) => {
-            Some(DocId::DesignPatch(id.parse().ok()?, patch.parse().ok()?))
-        }
-        ["exec", id] if is_fixed_digits(id, 3) => id.parse().ok().map(DocId::ExecPlan),
-        ["task", id] if is_fixed_digits(id, 4) => id.parse().ok().map(DocId::TaskSpec),
-        ["project"] => Some(DocId::ProjectSpec),
-        ["org"] => Some(DocId::OrgSpec),
-        _ => None,
+    let raw = raw.trim();
+    if raw == "project" {
+        return Some(DocId::ProjectSpec);
     }
+    if raw == "org" {
+        return Some(DocId::OrgSpec);
+    }
+
+    if let Some(exec_part) = raw.strip_prefix("exec-") {
+        if let Some((exec_slug, task_part)) = exec_part.split_once("/task-") {
+            let sequence = parse_local_sequence(task_part)?;
+            return Some(DocId::TaskSpec {
+                exec_slug: exec_slug.to_string(),
+                sequence,
+            });
+        }
+        if valid_slug(exec_part) {
+            return Some(DocId::ExecPlan(exec_part.to_string()));
+        }
+    }
+
+    if let Some(prd_slug) = raw.strip_prefix("prd-") {
+        return valid_slug(prd_slug).then(|| DocId::Prd(prd_slug.to_string()));
+    }
+
+    if let Some(design_remainder) = raw.strip_prefix("design-") {
+        if let Some((parent_slug, rest)) = design_remainder.split_once("-patch-") {
+            let (sequence_raw, patch_slug) = rest.split_once('-')?;
+            let sequence = parse_local_sequence(sequence_raw)?;
+            if valid_slug(parent_slug) && valid_slug(patch_slug) {
+                return Some(DocId::DesignPatch {
+                    parent_slug: parent_slug.to_string(),
+                    sequence,
+                    patch_slug: patch_slug.to_string(),
+                });
+            }
+            return None;
+        }
+        return valid_slug(design_remainder)
+            .then(|| DocId::DesignDoc(design_remainder.to_string()));
+    }
+
+    if let Some(task_remainder) = raw.strip_prefix("task-") {
+        let sequence = parse_local_sequence(task_remainder)?;
+        return Some(DocId::TaskSpec {
+            exec_slug: String::new(),
+            sequence,
+        });
+    }
+
+    None
+}
+
+fn parse_guideline_reference(raw: &str) -> Option<String> {
+    let raw = raw.trim().trim_start_matches("./");
+    let relative = raw.strip_prefix("docs/guidelines/")?;
+    let stem = relative.strip_suffix(".md")?;
+    if stem.is_empty() {
+        return None;
+    }
+    Some(stem.to_string())
 }
 
 fn path_to_unix(path: &Path) -> String {

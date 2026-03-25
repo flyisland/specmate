@@ -8,36 +8,29 @@ use std::path::Path;
 
 const STANDARD_PATHS: [&str; 6] = [
     ".specmate/config.yaml",
-    "specs",
+    "docs/specs",
     "docs/guidelines",
     "docs/prd",
-    "docs/design-docs",
+    "docs/design",
     "docs/exec-plans",
 ];
 
-const REQUIRED_DIRECTORIES: [&str; 16] = [
+const REQUIRED_DIRECTORIES: [&str; 15] = [
     ".specmate",
-    "specs",
-    "specs/active",
-    "specs/archived",
     "docs",
+    "docs/specs",
     "docs/guidelines",
+    "docs/guidelines/obsolete",
     "docs/prd",
     "docs/prd/draft",
     "docs/prd/approved",
     "docs/prd/obsolete",
-    "docs/design-docs",
-    "docs/design-docs/draft",
-    "docs/design-docs/candidate",
-    "docs/design-docs/implemented",
-    "docs/design-docs/obsolete",
+    "docs/design",
+    "docs/design/draft",
+    "docs/design/candidate",
+    "docs/design/implemented",
+    "docs/design/obsolete",
     "docs/exec-plans",
-];
-
-const REQUIRED_EXEC_PLAN_DIRECTORIES: [&str; 3] = [
-    "docs/exec-plans/draft",
-    "docs/exec-plans/active",
-    "docs/exec-plans/archived",
 ];
 
 /// Arguments for `specmate init`.
@@ -134,8 +127,6 @@ impl Operation {
 struct TemplateSet {
     agents: &'static str,
     specs_readme: &'static str,
-    specs_active_readme: &'static str,
-    specs_archived_readme: &'static str,
     project: &'static str,
     org: &'static str,
     prd_readme: &'static str,
@@ -149,8 +140,6 @@ impl TemplateSet {
             Lang::En => Self {
                 agents: include_str!("../template/en/AGENTS.md"),
                 specs_readme: include_str!("../template/en/specs-README.md"),
-                specs_active_readme: include_str!("../template/en/specs-active-README.md"),
-                specs_archived_readme: include_str!("../template/en/specs-archived-README.md"),
                 project: include_str!("../template/en/project.md"),
                 org: include_str!("../template/en/org.md"),
                 prd_readme: include_str!("../template/en/prd-README.md"),
@@ -160,8 +149,6 @@ impl TemplateSet {
             Lang::Zh => Self {
                 agents: include_str!("../template/zh/AGENTS.md"),
                 specs_readme: include_str!("../template/zh/specs-README.md"),
-                specs_active_readme: include_str!("../template/zh/specs-active-README.md"),
-                specs_archived_readme: include_str!("../template/zh/specs-archived-README.md"),
                 project: include_str!("../template/zh/project.md"),
                 org: include_str!("../template/zh/org.md"),
                 prd_readme: include_str!("../template/zh/prd-README.md"),
@@ -220,9 +207,6 @@ fn build_plan(repo_root: &Path, lang: Lang, merge: bool) -> Result<Vec<Operation
     for directory in REQUIRED_DIRECTORIES {
         push_directory_if_missing(repo_root, directory, &mut operations);
     }
-    for directory in REQUIRED_EXEC_PLAN_DIRECTORIES {
-        push_directory_if_missing(repo_root, directory, &mut operations);
-    }
 
     let file_specs = [
         (
@@ -237,28 +221,18 @@ fn build_plan(repo_root: &Path, lang: Lang, merge: bool) -> Result<Vec<Operation
         ),
         (
             Ownership::Specmate,
-            "specs/README.md",
+            "docs/specs/README.md",
             Cow::Borrowed(templates.specs_readme),
         ),
         (
             Ownership::User,
-            "specs/project.md",
+            "docs/specs/project.md",
             Cow::Borrowed(templates.project),
         ),
         (
             Ownership::User,
-            "specs/org.md",
+            "docs/specs/org.md",
             Cow::Borrowed(templates.org),
-        ),
-        (
-            Ownership::Specmate,
-            "specs/active/README.md",
-            Cow::Borrowed(templates.specs_active_readme),
-        ),
-        (
-            Ownership::Specmate,
-            "specs/archived/README.md",
-            Cow::Borrowed(templates.specs_archived_readme),
         ),
         (
             Ownership::Specmate,
@@ -267,7 +241,7 @@ fn build_plan(repo_root: &Path, lang: Lang, merge: bool) -> Result<Vec<Operation
         ),
         (
             Ownership::Specmate,
-            "docs/design-docs/README.md",
+            "docs/design/README.md",
             Cow::Borrowed(templates.design_docs_readme),
         ),
         (

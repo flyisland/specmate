@@ -3,49 +3,63 @@ use crate::error::DocumentModelError;
 use anyhow::Result;
 use std::path::Path;
 
-/// Allocates the next numeric ID for a document type.
-pub fn next_id(repo_root: &Path, doc_type: DocType) -> Result<u32> {
-    match doc_type {
-        DocType::Prd | DocType::DesignDoc | DocType::ExecPlan | DocType::TaskSpec => {
-            let index = build_compliant_index(repo_root)?;
-            let max_id = index
-                .documents
-                .keys()
-                .filter_map(|id| match (doc_type, id) {
-                    (DocType::Prd, DocId::Prd(value)) => Some(*value),
-                    (DocType::DesignDoc, DocId::DesignDoc(value)) => Some(*value),
-                    (DocType::ExecPlan, DocId::ExecPlan(value)) => Some(*value),
-                    (DocType::TaskSpec, DocId::TaskSpec(value)) => Some(*value),
-                    _ => None,
-                })
-                .max();
-            Ok(max_id.unwrap_or(0) + 1)
+/// Ensures a proposed slug is not already occupied for the given document type.
+pub fn ensure_unique_slug(repo_root: &Path, doc_type: DocType, slug: &str) -> Result<()> {
+    let index = build_compliant_index(repo_root)?;
+    let occupied = index.documents.keys().any(|id| match (doc_type, id) {
+        (DocType::Prd, DocId::Prd(existing)) => existing == slug,
+        (DocType::DesignDoc, DocId::DesignDoc(existing)) => existing == slug,
+        (DocType::ExecPlan, DocId::ExecPlan(existing)) => existing == slug,
+        _ => false,
+    });
+
+    if occupied {
+        return Err(DocumentModelError::InvalidField {
+            path: index.repo_root,
+            field: "id",
+            message: format!("slug `{slug}` is already in use for {doc_type}"),
         }
-        _ => Err(DocumentModelError::UnsupportedIdAllocation {
-            doc_type: doc_type.as_str(),
-        }
-        .into()),
+        .into());
     }
+
+    Ok(())
 }
 
-/// Allocates the next patch sequence number for a parent design document.
-pub fn next_patch_number(repo_root: &Path, parent_id: u32) -> Result<u8> {
+/// Allocates the next patch sequence number for a parent design slug.
+pub fn next_patch_number(repo_root: &Path, parent_slug: &str) -> Result<u32> {
     let index = build_compliant_index(repo_root)?;
     let max_patch = index
         .documents
         .keys()
         .filter_map(|id| match id {
-            DocId::DesignPatch(parent, patch) if *parent == parent_id => Some(*patch),
+            DocId::DesignPatch {
+                parent_slug: existing,
+                sequence,
+                ..
+            } if existing == parent_slug => Some(*sequence),
             _ => None,
         })
         .max()
         .unwrap_or(0);
-    max_patch
-        .checked_add(1)
-        .ok_or_else(|| DocumentModelError::InvalidField {
-            path: index.repo_root,
-            field: "patch",
-            message: format!("patch sequence overflow for design-{parent_id:03}"),
+
+    Ok(max_patch + 1)
+}
+
+/// Allocates the next task sequence number for an exec plan slug.
+pub fn next_task_sequence(repo_root: &Path, exec_slug: &str) -> Result<u32> {
+    let index = build_compliant_index(repo_root)?;
+    let max_task = index
+        .documents
+        .keys()
+        .filter_map(|id| match id {
+            DocId::TaskSpec {
+                exec_slug: existing,
+                sequence,
+            } if existing == exec_slug => Some(*sequence),
+            _ => None,
         })
-        .map_err(Into::into)
+        .max()
+        .unwrap_or(0);
+
+    Ok(max_task + 1)
 }

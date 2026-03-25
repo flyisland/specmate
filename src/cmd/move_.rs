@@ -1,6 +1,6 @@
 use crate::doc::{
     build_compliant_index, preview_transition, validate_preview, validate_transition, DocType,
-    Document, DocumentIndex, Status,
+    Document, Status,
 };
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 /// Arguments for `specmate move`.
 #[derive(Args, Debug, Clone)]
 #[command(
-    after_help = "Examples:\n  specmate move exec-001 active\n  specmate move task-0007 completed\n  specmate move design-001 implemented --dry-run"
+    after_help = "Examples:\n  specmate move exec-auth-add-oauth candidate\n  specmate move exec-auth-add-oauth/task-01 closed\n  specmate move design-auth-system implemented --dry-run"
 )]
 pub struct MoveArgs {
-    /// Managed document id such as `task-0001` or `design-004-patch-01`
+    /// Managed document id such as `exec-auth-add-oauth/task-01` or `design-auth-system-patch-01-fix-links`
     pub doc_id: String,
     /// Target status valid for the resolved document type
     pub to_status: String,
@@ -105,7 +105,7 @@ fn find_repo_root(start_dir: &Path) -> std::result::Result<PathBuf, MoveFailure>
     })?;
 
     loop {
-        if current.join("specs/project.md").is_file() {
+        if current.join("docs/specs/project.md").is_file() {
             return Ok(current);
         }
         if !current.pop() {
@@ -134,7 +134,7 @@ fn plan_move(repo_root: &Path, args: &MoveArgs) -> std::result::Result<MovePlan,
         MoveFailure::new(
             Some(repo_root.to_path_buf()),
             format!("managed document {} does not exist", args.doc_id.trim()),
-            "Use a canonical managed document id such as task-0001 or design-004.",
+            "Use a canonical managed document id such as exec-auth-add-oauth/task-01 or design-auth-system.",
         )
     })?;
 
@@ -245,13 +245,14 @@ fn plan_move(repo_root: &Path, args: &MoveArgs) -> std::result::Result<MovePlan,
         ));
     }
 
-    let updated_contents = rewrite_status(&document.raw, to_status).map_err(|message| {
-        MoveFailure::new(
-            Some(document.path.clone()),
-            message,
-            "Repair the document frontmatter and re-run specmate move.",
-        )
-    })?;
+    let updated_contents =
+        rewrite_frontmatter_for_status(&document.raw, to_status).map_err(|message| {
+            MoveFailure::new(
+                Some(document.path.clone()),
+                message,
+                "Repair the document frontmatter and re-run specmate move.",
+            )
+        })?;
 
     Ok(MovePlan {
         repo_root: index.repo_root.clone(),
@@ -263,7 +264,7 @@ fn plan_move(repo_root: &Path, args: &MoveArgs) -> std::result::Result<MovePlan,
     })
 }
 
-fn resolve_document<'a>(index: &'a DocumentIndex, raw: &str) -> Option<&'a Document> {
+fn resolve_document<'a>(index: &'a crate::doc::DocumentIndex, raw: &str) -> Option<&'a Document> {
     let wanted = raw.trim();
     index
         .documents
@@ -286,13 +287,11 @@ fn parse_target_status(doc_type: DocType, raw: &str) -> Option<Status> {
         (DocType::DesignPatch, "obsolete") => Some(Status::Obsolete),
         (DocType::DesignPatch, "obsolete:merged") => Some(Status::ObsoleteMerged),
         (DocType::ExecPlan, "draft") => Some(Status::Draft),
-        (DocType::ExecPlan, "active") => Some(Status::Active),
-        (DocType::ExecPlan, "completed") => Some(Status::Completed),
-        (DocType::ExecPlan, "abandoned") => Some(Status::Abandoned),
+        (DocType::ExecPlan, "candidate") => Some(Status::Candidate),
+        (DocType::ExecPlan, "closed") => Some(Status::Closed),
         (DocType::TaskSpec, "draft") => Some(Status::Draft),
-        (DocType::TaskSpec, "active") => Some(Status::Active),
-        (DocType::TaskSpec, "completed") => Some(Status::Completed),
-        (DocType::TaskSpec, "cancelled") => Some(Status::Cancelled),
+        (DocType::TaskSpec, "candidate") => Some(Status::Candidate),
+        (DocType::TaskSpec, "closed") => Some(Status::Closed),
         _ => None,
     }
 }
@@ -307,15 +306,18 @@ fn allowed_target_statuses(doc_type: DocType, from_status: Status) -> &'static [
         (DocType::DesignPatch, Status::Draft) => &["candidate", "obsolete"],
         (DocType::DesignPatch, Status::Candidate) => &["implemented", "obsolete"],
         (DocType::DesignPatch, Status::Implemented) => &["obsolete:merged"],
-        (DocType::ExecPlan, Status::Draft) => &["active"],
-        (DocType::ExecPlan, Status::Active) => &["completed", "abandoned"],
-        (DocType::TaskSpec, Status::Draft) => &["active", "cancelled"],
-        (DocType::TaskSpec, Status::Active) => &["completed", "cancelled"],
+        (DocType::ExecPlan, Status::Draft) => &["candidate", "closed"],
+        (DocType::ExecPlan, Status::Candidate) => &["draft", "closed"],
+        (DocType::TaskSpec, Status::Draft) => &["candidate", "closed"],
+        (DocType::TaskSpec, Status::Candidate) => &["draft", "closed"],
         _ => &[],
     }
 }
 
-fn rewrite_status(raw: &str, to_status: Status) -> std::result::Result<String, String> {
+fn rewrite_frontmatter_for_status(
+    raw: &str,
+    to_status: Status,
+) -> std::result::Result<String, String> {
     let mut lines: Vec<String> = raw.lines().map(ToOwned::to_owned).collect();
     if !matches!(lines.first().map(|line| line.as_str()), Some("---")) {
         return Err("document is missing a leading frontmatter block".to_string());
@@ -330,11 +332,14 @@ fn rewrite_status(raw: &str, to_status: Status) -> std::result::Result<String, S
 
     let replacement = format!("status: {}", to_status.as_str());
     let mut replaced = false;
-    for line in lines.iter_mut().take(end).skip(1) {
+    let mut closed_line = None;
+    for (index, line) in lines.iter_mut().enumerate().take(end).skip(1) {
         if line.trim_start().starts_with("status:") {
             *line = replacement.clone();
             replaced = true;
-            break;
+        }
+        if line.trim_start().starts_with("closed:") {
+            closed_line = Some(index);
         }
     }
 
@@ -342,11 +347,52 @@ fn rewrite_status(raw: &str, to_status: Status) -> std::result::Result<String, S
         return Err("document frontmatter does not contain a status field".to_string());
     }
 
+    match to_status {
+        Status::Closed => {
+            let today = current_date_string();
+            match closed_line {
+                Some(index) => lines[index] = format!("closed: {today}"),
+                None => lines.insert(end, format!("closed: {today}")),
+            }
+        }
+        _ => {
+            if let Some(index) = closed_line {
+                lines.remove(index);
+            }
+        }
+    }
+
     let mut updated = lines.join("\n");
     if raw.ends_with('\n') {
         updated.push('\n');
     }
     Ok(updated)
+}
+
+fn current_date_string() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let days = now / 86_400;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
+    let z = days_since_epoch + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    (year, m, d)
 }
 
 fn apply_move(plan: &MovePlan) -> std::result::Result<(), MoveFailure> {

@@ -8,9 +8,9 @@
 
 ## Core documents
 
-- `specs/project.md` — technical constraints for this project
-- `docs/design-docs/implemented/` — current design contracts (ls = source of truth)
-- Active Task Spec — defines intent, boundaries, completion criteria
+- `docs/specs/project.md` — technical constraints for this project
+- `docs/design/implemented/` — current design contracts (ls = source of truth)
+- The Task Spec under the current Exec Plan directory — defines intent, boundaries, completion criteria
 
 ## Guidelines — read when relevant
 
@@ -22,11 +22,11 @@
 
 ## Before starting any task
 
-1. Read `specs/project.md` — confirm technical constraints
-2. Read relevant docs in `docs/design-docs/implemented/`
+1. Read `docs/specs/project.md` — confirm technical constraints
+2. Read relevant docs in `docs/design/implemented/`
 3. Read guidelines listed in the Task Spec's `guidelines` field (if any)
 4. Read the Task Spec — note `boundaries.allowed` and `completion_criteria`
 5. Code strictly within `boundaries.allowed`
 6. All `completion_criteria` tests must pass before the task is done
 
-Do not modify any file under `specs/` during task execution.
+Do not modify managed documents under `docs/specs/`, `docs/design/`, or `docs/exec-plans/` during task execution unless the task explicitly exists to update them.

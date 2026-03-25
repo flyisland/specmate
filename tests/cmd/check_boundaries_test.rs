@@ -1,6 +1,8 @@
 use super::check_support::{create_compliant_repo, init_git_repo, temp_repo, write_file};
 use super::{run_in_repo, BoundariesArgs, CheckArgs, CheckCommand};
 
+const TASK_ID: &str = "exec-build-check-engine/task-01";
+
 fn run_boundaries(dir: &tempfile::TempDir, task_id: &str) -> (anyhow::Result<()>, String, String) {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -33,10 +35,11 @@ fn test_check_boundaries_passes_for_allowed_changes() {
     )
     .expect("failed to modify allowed file");
 
-    let (result, stdout, stderr) = run_boundaries(&dir, "task-0001");
+    let (result, stdout, stderr) = run_boundaries(&dir, TASK_ID);
 
     assert!(result.is_ok(), "boundaries should pass: {stderr}");
-    assert!(stdout.contains("[pass] check boundaries task-0001"));
+    assert!(stdout.contains("[pass] check boundaries"));
+    assert!(stdout.contains(TASK_ID));
 }
 
 #[test]
@@ -51,7 +54,7 @@ fn test_check_boundaries_reports_files_outside_allowed_patterns() {
     )
     .expect("failed to modify disallowed file");
 
-    let (result, stdout, _) = run_boundaries(&dir, "task-0001");
+    let (result, stdout, _) = run_boundaries(&dir, TASK_ID);
 
     assert!(result.is_err(), "boundaries should fail");
     assert!(stdout.contains("src/main.rs"));
@@ -64,21 +67,21 @@ fn test_check_boundaries_reports_forbidden_pattern_matches() {
     create_compliant_repo(dir.path());
     write_file(
         dir.path(),
-        "specs/active/task-0001-implement-check-engine.md",
-        "---\nid: task-0001\ntitle: \"Implement check engine\"\nstatus: active\nexec-plan: exec-001\nguidelines:\n  - docs/guidelines/specmate.md\nboundaries:\n  allowed:\n    - \"**/*.md\"\n  forbidden_patterns:\n    - \"specs/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"task passes\"\n    test: \"test_task\"\n---\n\n# Task\n",
+        "docs/exec-plans/exec-build-check-engine/task-01-implement-check-engine.md",
+        "---\nid: task-01\ntitle: \"Implement check engine\"\nstatus: candidate\ncreated: 2026-03-25\nexec-plan: exec-build-check-engine\nboundaries:\n  allowed:\n    - \"**/*.md\"\n  forbidden_patterns:\n    - \"docs/prd/**\"\n    - \"docs/design/**\"\n    - \"docs/guidelines/**\"\n    - \"docs/specs/**\"\n    - \"docs/exec-plans/**\"\ncompletion_criteria:\n  - id: \"cc-001\"\n    scenario: \"task passes\"\n    test: \"test_task\"\n---\n\n# Task\n",
     );
     init_git_repo(dir.path());
 
     std::fs::write(
-        dir.path().join("specs/project.md"),
+        dir.path().join("docs/specs/project.md"),
         "---\nid: project\nstatus: active\n---\n\n# Changed\n",
     )
     .expect("failed to modify forbidden file");
 
-    let (result, stdout, _) = run_boundaries(&dir, "task-0001");
+    let (result, stdout, _) = run_boundaries(&dir, TASK_ID);
 
     assert!(result.is_err(), "boundaries should fail");
-    assert!(stdout.contains("specs/project.md"));
+    assert!(stdout.contains("docs/specs/project.md"));
     assert!(stdout.contains("forbidden"));
 }
 
@@ -88,12 +91,12 @@ fn test_check_boundaries_rejects_missing_or_invalid_task_id() {
     create_compliant_repo(dir.path());
     init_git_repo(dir.path());
 
-    let (result, stdout, stderr) = run_boundaries(&dir, "task-9999");
+    let (result, stdout, stderr) = run_boundaries(&dir, "exec-build-check-engine/task-99");
 
     assert!(result.is_err(), "boundaries should fail");
     assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
     assert!(stderr.contains("[fail] check"));
-    assert!(stderr.contains("task spec task-9999 does not exist"));
+    assert!(stderr.contains("does not exist"));
 }
 
 #[test]
@@ -113,8 +116,9 @@ fn test_check_boundaries_ignores_unrelated_invalid_managed_docs() {
     )
     .expect("failed to modify allowed file");
 
-    let (result, stdout, stderr) = run_boundaries(&dir, "task-0001");
+    let (result, stdout, stderr) = run_boundaries(&dir, TASK_ID);
 
     assert!(result.is_ok(), "boundaries should still pass: {stderr}");
-    assert!(stdout.contains("[pass] check boundaries task-0001"));
+    assert!(stdout.contains("[pass] check boundaries"));
+    assert!(stdout.contains(TASK_ID));
 }

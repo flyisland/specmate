@@ -40,7 +40,8 @@ pub struct BoundariesArgs {
 
 /// Run `specmate check`.
 pub fn run(args: CheckArgs) -> Result<()> {
-    let repo_root = std::env::current_dir().context("reading current working directory")?;
+    let start_dir = std::env::current_dir().context("reading current working directory")?;
+    let repo_root = find_repo_root(&start_dir)?;
     let mut stdout = std::io::stdout();
     let mut stderr = std::io::stderr();
     run_in_repo(&repo_root, args, &mut stdout, &mut stderr)
@@ -99,6 +100,23 @@ fn run_in_repo<W: Write, E: Write>(
 
     stderr.flush()?;
     Ok(())
+}
+
+fn find_repo_root(start_dir: &Path) -> Result<std::path::PathBuf> {
+    let mut current = std::fs::canonicalize(start_dir)
+        .with_context(|| format!("reading {}", start_dir.display()))?;
+
+    loop {
+        if current.join("docs/specs/project.md").is_file() {
+            return Ok(current);
+        }
+        if !current.pop() {
+            bail!(
+                "could not locate a specmate repository root from {}",
+                start_dir.display()
+            );
+        }
+    }
 }
 
 #[cfg(test)]

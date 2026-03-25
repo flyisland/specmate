@@ -63,24 +63,20 @@ fn test_init_creates_full_directory_structure() {
 
     for relative in [
         ".specmate",
-        "specs",
-        "specs/active",
-        "specs/archived",
         "docs",
+        "docs/specs",
         "docs/guidelines",
+        "docs/guidelines/obsolete",
         "docs/prd",
         "docs/prd/draft",
         "docs/prd/approved",
         "docs/prd/obsolete",
-        "docs/design-docs",
-        "docs/design-docs/draft",
-        "docs/design-docs/candidate",
-        "docs/design-docs/implemented",
-        "docs/design-docs/obsolete",
+        "docs/design",
+        "docs/design/draft",
+        "docs/design/candidate",
+        "docs/design/implemented",
+        "docs/design/obsolete",
         "docs/exec-plans",
-        "docs/exec-plans/draft",
-        "docs/exec-plans/active",
-        "docs/exec-plans/archived",
     ] {
         assert_exists(&dir.path().join(relative));
         assert!(
@@ -92,13 +88,11 @@ fn test_init_creates_full_directory_structure() {
     for relative in [
         "AGENTS.md",
         ".specmate/config.yaml",
-        "specs/README.md",
-        "specs/project.md",
-        "specs/org.md",
-        "specs/active/README.md",
-        "specs/archived/README.md",
+        "docs/specs/README.md",
+        "docs/specs/project.md",
+        "docs/specs/org.md",
         "docs/prd/README.md",
-        "docs/design-docs/README.md",
+        "docs/design/README.md",
         "docs/exec-plans/README.md",
     ] {
         let path = dir.path().join(relative);
@@ -118,7 +112,7 @@ fn test_init_lang_zh_generates_chinese_content() {
     let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, false));
 
     assert!(result.is_ok(), "init failed: {stderr}");
-    assert!(read(&dir.path().join("specs/README.md")).contains("Task Spec 和项目级约束文档。"));
+    assert!(read(&dir.path().join("docs/specs/README.md")).contains("项目级约束文档"));
     assert!(read(&dir.path().join("AGENTS.md")).contains("Agent 入职文档"));
 }
 
@@ -129,8 +123,7 @@ fn test_init_lang_en_generates_english_content() {
     let (result, _, stderr) = run_init(&dir, args(Some(Lang::En), false, false));
 
     assert!(result.is_ok(), "init failed: {stderr}");
-    assert!(read(&dir.path().join("specs/README.md"))
-        .contains("Task Specs and project-level constraints."));
+    assert!(read(&dir.path().join("docs/specs/README.md")).contains("Project-level constraints"));
     assert!(read(&dir.path().join("AGENTS.md")).contains("Agent Onboarding"));
 }
 
@@ -141,8 +134,7 @@ fn test_init_default_lang_is_en() {
     let (result, _, stderr) = run_init(&dir, args(None, false, false));
 
     assert!(result.is_ok(), "init failed: {stderr}");
-    assert!(read(&dir.path().join("specs/README.md"))
-        .contains("Task Specs and project-level constraints."));
+    assert!(read(&dir.path().join("docs/specs/README.md")).contains("Project-level constraints"));
 }
 
 #[test]
@@ -158,7 +150,7 @@ fn test_init_existing_repo_errors_and_exits() {
     assert!(stderr.contains("[fail]"));
     assert!(stderr.contains("--merge"));
     assert!(
-        !dir.path().join("specs").exists(),
+        !dir.path().join("docs/specs").exists(),
         "init should not create new paths"
     );
 }
@@ -200,9 +192,9 @@ fn test_init_merge_overwrites_readmes() {
     let (result, _, stderr) = run_init(&dir, args(Some(Lang::En), false, false));
     assert!(result.is_ok(), "initial init failed: {stderr}");
 
-    fs::write(dir.path().join("specs/README.md"), "custom readme\n").unwrap();
+    fs::write(dir.path().join("docs/specs/README.md"), "custom readme\n").unwrap();
     fs::write(
-        dir.path().join("docs/design-docs/README.md"),
+        dir.path().join("docs/design/README.md"),
         "custom design docs\n",
     )
     .unwrap();
@@ -210,20 +202,21 @@ fn test_init_merge_overwrites_readmes() {
     let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, true));
 
     assert!(result.is_ok(), "merge failed: {stderr}");
-    assert!(read(&dir.path().join("specs/README.md")).contains("Task Spec 和项目级约束文档。"));
-    assert!(read(&dir.path().join("docs/design-docs/README.md"))
-        .contains("描述系统如何构建的设计文档。"));
+    assert!(read(&dir.path().join("docs/specs/README.md")).contains("项目级约束文档"));
+    assert!(
+        read(&dir.path().join("docs/design/README.md")).contains("描述系统如何构建的设计文档。")
+    );
 }
 
 #[test]
 fn test_init_merge_preserves_user_files() {
     let dir = temp_repo();
-    fs::create_dir_all(dir.path().join("specs")).unwrap();
+    fs::create_dir_all(dir.path().join("docs/specs")).unwrap();
     fs::create_dir_all(dir.path().join(".specmate")).unwrap();
     fs::write(dir.path().join("AGENTS.md"), "custom agents\n").unwrap();
     fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
-    fs::write(dir.path().join("specs/project.md"), "custom project\n").unwrap();
-    fs::write(dir.path().join("specs/org.md"), "custom org\n").unwrap();
+    fs::write(dir.path().join("docs/specs/project.md"), "custom project\n").unwrap();
+    fs::write(dir.path().join("docs/specs/org.md"), "custom org\n").unwrap();
 
     let (result, _, stderr) = run_init(&dir, args(Some(Lang::Zh), false, true));
 
@@ -234,17 +227,17 @@ fn test_init_merge_preserves_user_files() {
         "lang: en\n"
     );
     assert_eq!(
-        read(&dir.path().join("specs/project.md")),
+        read(&dir.path().join("docs/specs/project.md")),
         "custom project\n"
     );
-    assert_eq!(read(&dir.path().join("specs/org.md")), "custom org\n");
+    assert_eq!(read(&dir.path().join("docs/specs/org.md")), "custom org\n");
 }
 
 #[test]
 fn test_init_merge_creates_missing_structure() {
     let dir = temp_repo();
     fs::create_dir_all(dir.path().join(".specmate")).unwrap();
-    fs::create_dir_all(dir.path().join("specs")).unwrap();
+    fs::create_dir_all(dir.path().join("docs/specs")).unwrap();
     fs::write(dir.path().join(".specmate/config.yaml"), "lang: en\n").unwrap();
 
     let (result, stdout, stderr) = run_init(&dir, args(None, false, true));
@@ -259,8 +252,8 @@ fn test_init_merge_creates_missing_structure() {
         "expected skip output for existing user file: {stdout}"
     );
     assert_exists(&dir.path().join("docs/guidelines"));
-    assert_exists(&dir.path().join("docs/exec-plans/archived"));
-    assert_exists(&dir.path().join("specs/active/README.md"));
+    assert_exists(&dir.path().join("docs/guidelines/obsolete"));
+    assert_exists(&dir.path().join("docs/design/README.md"));
     assert_exists(&dir.path().join("docs/prd/README.md"));
 }
 
@@ -295,6 +288,6 @@ fn test_init_generates_spec_templates() {
     let (result, _, stderr) = run_init(&dir, args(None, false, false));
 
     assert!(result.is_ok(), "init failed: {stderr}");
-    assert!(read(&dir.path().join("specs/project.md")).contains("id: project"));
-    assert!(read(&dir.path().join("specs/org.md")).contains("id: org"));
+    assert!(read(&dir.path().join("docs/specs/project.md")).contains("id: project"));
+    assert!(read(&dir.path().join("docs/specs/org.md")).contains("id: org"));
 }
