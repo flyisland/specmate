@@ -46,6 +46,8 @@ As of this document revision, the implemented top-level commands are:
 
 - `specmate init`
 - `specmate check`
+- `specmate move`
+- `specmate status`
 
 All other command families mentioned below are planning-only until code lands
 and the command is wired into the CLI.
@@ -62,20 +64,20 @@ Repository-facing docs must reflect this boundary clearly:
 
 | Command | Purpose | Design home | Status |
 |---|---|---|---|
-| `specmate new` | Create managed documents with allocated IDs and initial frontmatter | Split into a dedicated Design Doc; currently depends on doc model rules in `design-003` | planned |
-| `specmate move` | Perform status transitions and relocate managed documents atomically | `design-007` | planned |
-| `specmate check` | Run mechanical validation across the document system | `design-004` | implemented |
-| `specmate run` | Execute the coding loop for a Task Spec via ACP | `design-005` | planned |
-| `specmate rerun` | Re-enter the agent loop for a previously run task | `design-005` | planned |
-| `specmate status` | Show system status and doc progress views | `design-008` | planned |
+| `specmate new` | Create managed documents with allocated IDs and initial frontmatter | Split into a dedicated Design Doc; currently depends on shared rules in `design-doc-model` | planned |
+| `specmate move` | Perform status transitions and relocate managed documents atomically | `design-move-command` | implemented |
+| `specmate check` | Run mechanical validation across the document system | `design-check-engine` | implemented |
+| `specmate run` | Execute the coding loop for a Task Spec via ACP | `design-agent-loop` | planned |
+| `specmate rerun` | Re-enter the agent loop for a previously run task | `design-agent-loop` | planned |
+| `specmate status` | Show system status and doc progress views | `design-status-command` | implemented |
 | `specmate update-guides` | Refresh specmate-owned guide files after template or guidance changes | Split into a dedicated Design Doc | planned |
 
 Notes:
 
 - `specmate run` and `specmate rerun` are grouped because they share one loop design.
-- `specmate new` is not yet owned by a dedicated command Design Doc even though `design-003` already defines some shared document-model behavior it depends on.
+- `specmate new` is not yet owned by a dedicated command Design Doc even though `design-doc-model` already defines shared document-model behavior it depends on.
 - `specmate update-guides` remains a roadmap item only until its own design work starts.
-- `specmate status` now has a dedicated command design in `design-008`, but remains planning-only until code lands.
+- `specmate move` and `specmate status` have already landed in code and should remain listed here only as implemented surface, not as planning-only work.
 
 ---
 
@@ -95,8 +97,10 @@ This rule keeps the roadmap small while preserving a single place to answer
 
 ## 5. Exit condition
 
-This document should remain `candidate` while at least one planned command
-family still lacks implementation.
+This document should remain non-terminal while at least one planned command
+family still lacks implementation. `draft` is acceptable while the roadmap is
+still being revised; `candidate` is appropriate once the remaining roadmap
+entries and current implementation boundary are approved.
 
 Once every roadmap item has either:
 

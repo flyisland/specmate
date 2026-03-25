@@ -44,10 +44,10 @@ Any operation that creates, overwrites, or skips a file must prefix the line
 with an ownership tag:
 
 ```
-  [specmate] CREATE    specs/README.md
-  [specmate] OVERWRITE docs/design-docs/README.md
+  [specmate] CREATE    docs/specs/README.md
+  [specmate] OVERWRITE docs/design/README.md
   [user]     CREATE    AGENTS.md
-  [user]     SKIP      specs/project.md  (already exists)
+  [user]     SKIP      docs/specs/project.md  (already exists)
   [dir]      CREATE    docs/prd/draft/
 ```
 
@@ -73,8 +73,8 @@ Each check result is prefixed with a status indicator:
 ```
 [pass] check names         all 23 documents pass
 [fail] check status        1 violation
-       specs/active/task-0001.md: status is 'completed' but file is in active/
-       -> Move to specs/archived/ or update status field
+       docs/design/candidate/design-auth-system.md: status is 'implemented' but file is in docs/design/candidate/
+       -> Run: specmate move design-auth-system implemented
 [warn] check refs          1 warning
 ```
 
@@ -137,9 +137,9 @@ Error messages must be actionable. Every error must answer three questions:
 
 ```
 # Good
-[fail] specs/active/task-0001-implement-init.md
-       status is 'completed' but file is in specs/active/
-       -> Run: specmate move task-0001 completed
+[fail] docs/design/candidate/design-auth-system.md
+       status is 'implemented' but file is in docs/design/candidate/
+       -> Run: specmate move design-auth-system implemented
 
 # Bad
 [fail] Status mismatch detected
@@ -160,14 +160,14 @@ emit progress feedback rather than running silently.
 - On completion, print a summary: how many items were checked, created, or passed
 
 ```
-Running task-0001...
+Running exec-build-agent-loop/task-01...
   [1/4] Pre-flight checks          pass
-  [2/4] Creating branch            pass  specmate/task-0001-implement-init-command
+  [2/4] Creating branch            pass  specmate/exec-build-agent-loop--task-01-implement-run-command
   [3/4] Coding agent (round 1)     pass
   [4/4] Review agent               pass
 
-Done. Branch ready for review: specmate/task-0001-implement-init-command
-Execution report: specs/active/task-0001-implement-init-command-report.md
+Done. Branch ready for review: specmate/exec-build-agent-loop--task-01-implement-run-command
+Execution report: docs/exec-plans/exec-build-agent-loop/exec-build-agent-loop--task-01-implement-run-command-report.md
 ```
 
 ---
@@ -196,8 +196,8 @@ Exception: when a destructive or irreversible action is about to be taken
 prompt for confirmation unless `--yes` is passed.
 
 ```
-specmate rerun task-0001 --reset
-Branch specmate/task-0001-implement-init-command already exists.
+specmate rerun exec-build-agent-loop/task-01 --reset
+Branch specmate/exec-build-agent-loop--task-01-implement-run-command already exists.
 This will delete it and start fresh. Continue? [y/N]
 ```
 

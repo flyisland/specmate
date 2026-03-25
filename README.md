@@ -8,28 +8,33 @@ CLI companion for document-driven AI coding.
 
 ## Current status
 
-The currently implemented CLI surface is intentionally small:
+The currently implemented CLI surface is:
 
 ```bash
 specmate init [--lang <en|zh>] [--merge] [--dry-run]
+specmate check [names|frontmatter|status|refs|conflicts|boundaries <task-id>]
+specmate move <doc-id> <to-status> [--dry-run]
+specmate status [doc-id] [--all] [--color <when>]
 ```
 
-`specmate init` bootstraps a repository with the specmate document structure,
-templates, and config files.
+These commands cover repository bootstrap, mechanical validation, status
+transitions, and repository/document inspection.
 
 Planned but not yet implemented commands are tracked in
-`docs/design-docs/candidate/design-006-cli-surface-roadmap.md`.
+`docs/design/draft/design-cli-surface-roadmap.md`.
 Repository-facing docs should not present those commands as already available.
 
 ---
 
 ## Source documents
 
-- `docs/design-docs/implemented/design-001-document-system.md`
-  Current document-system contract and status model.
-- `docs/design-docs/candidate/design-006-cli-surface-roadmap.md`
-  Planning container for future CLI surface.
-- `specs/project.md`
+- `docs/design/implemented/`
+  Current implemented design contracts.
+- `docs/design/candidate/design-agent-loop.md`
+  Current candidate design for the planned `run` / `rerun` workflow.
+- `docs/design/draft/design-cli-surface-roadmap.md`
+  Planning container for remaining CLI surface.
+- `docs/specs/project.md`
   Project constraints and coding conventions for this repository.
 - `AGENTS.md`
   Contributor and agent onboarding for the current codebase.
@@ -43,5 +48,5 @@ cargo build
 cargo test
 cargo clippy -- -D warnings
 cargo fmt --check
-cargo run -- init --help
+cargo run -- --help
 ```

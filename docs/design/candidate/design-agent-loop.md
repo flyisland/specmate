@@ -40,10 +40,10 @@ code `1` and a clear error message.
 
 | Check | Rule |
 |---|---|
-| Spec status | Task Spec status must be `active`. `draft` specs are not executable. |
+| Spec status | Task Spec status must be `candidate`. `draft` specs are not executable. |
 | Spec committed | The Task Spec file must be committed in git. A dirty or untracked spec is not a locked contract. |
 | Clean working tree | No uncommitted changes in the working tree. Dirty state creates ambiguity in boundary checking. |
-| Dependencies complete | All predecessor Task Specs listed in the Exec Plan must be `completed`. |
+| Dependencies complete | All predecessor Task Specs listed in the Exec Plan must be `closed`. |
 
 ---
 
@@ -52,7 +52,7 @@ code `1` and a clear error message.
 After pre-flight checks pass, specmate creates a git branch:
 
 ```
-specmate/task-{id}-{slug}
+specmate/{exec-id}--task-{nn}-{slug}
 ```
 
 Branch is created from the current HEAD of the default branch. If the branch
@@ -87,7 +87,7 @@ create / reuse branch
 [finalise]
   commit all changes
   write execution report
-  specmate move <task-id> completed
+  specmate move <task-id> closed
   print handoff message
 ```
 
@@ -100,7 +100,8 @@ passed to the coding agent:
 
 1. The full Task Spec content
 2. All files listed in `guidelines` (verbatim)
-3. All files in `docs/design-docs/implemented/` referenced by the Task Spec
+3. All files in `docs/design/implemented/` referenced by the owning Exec Plan
+   and required by the Task Spec
 4. If this is round 2+: the mechanical check output or review agent output
    from the previous round
 
@@ -163,9 +164,9 @@ or the spec's intent is ambiguous. It is not a soft `fail`.
 After a successful loop, specmate commits all changes with:
 
 ```
-task-{id}: {title}
+{task-id}: {title}
 
-Completes {task-id}-{slug}.
+Completes {task-id}.
 All completion criteria passed.
 Coding rounds: N
 Review rounds: N
@@ -178,14 +179,17 @@ Merging the branch is the human's decision.
 
 ## 9. Execution report
 
-Written to `specs/active/task-{id}-{slug}-report.md` immediately after
-the loop completes (pass, uncertain, or failed).
+Written to a specmate-managed report file inside the owning Exec Plan
+directory immediately after the loop completes (pass, uncertain, or failed).
+Recommended v1 path:
+
+`docs/exec-plans/<exec-id>/<exec-id>--task-<nn>-<slug>-report.md`
 
 ```markdown
 ---
-task: task-0001
+task: exec-build-agent-loop/task-01
 result: pass            # pass | uncertain | failed
-branch: specmate/task-0001-implement-init-command
+branch: specmate/exec-build-agent-loop--task-01-implement-run-command
 timestamp: 2026-04-01T14:32:00Z
 iterations:
   coding: 2
@@ -208,8 +212,8 @@ all edge cases covered.
 <!-- populated when result is uncertain or failed -->
 ```
 
-The execution report is moved to `specs/archived/` alongside the Task Spec
-when the spec is marked `completed`.
+The execution report stays in the owning Exec Plan directory as a historical
+artifact. Closing the Task Spec does not require moving the report elsewhere.
 
 ---
 
@@ -218,13 +222,13 @@ when the spec is marked `completed`.
 On successful completion, specmate prints:
 
 ```
-task-0001 complete
+exec-build-agent-loop/task-01 complete
 
 Branch ready for review:
-  specmate/task-0001-implement-init-command
+  specmate/exec-build-agent-loop--task-01-implement-run-command
 
 Execution report:
-  specs/active/task-0001-implement-init-command-report.md
+  docs/exec-plans/exec-build-agent-loop/exec-build-agent-loop--task-01-implement-run-command-report.md
 
 Next step: review the branch and merge when satisfied.
 ```
@@ -232,16 +236,16 @@ Next step: review the branch and merge when satisfied.
 On `uncertain`:
 
 ```
-task-0001 paused -- review agent returned uncertain
+exec-build-agent-loop/task-01 paused -- review agent returned uncertain
 
 Branch:
-  specmate/task-0001-implement-init-command
+  specmate/exec-build-agent-loop--task-01-implement-run-command
 
 Execution report:
-  specs/active/task-0001-implement-init-command-report.md
+  docs/exec-plans/exec-build-agent-loop/exec-build-agent-loop--task-01-implement-run-command-report.md
 
 Next step: read the execution report, then run:
-  specmate rerun task-0001 --context "your guidance here"
+  specmate rerun exec-build-agent-loop/task-01 --context "your guidance here"
 ```
 
 ---

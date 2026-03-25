@@ -7,10 +7,9 @@ created: 2026-03-25
 
 # Document Model
 
-This document defines the internal model that specmate uses to represent,
-validate, and transition documents. It is the foundation all other specmate
-modules build on — commands read and write documents through this model,
-never by manipulating files directly.
+This document defines the internal model specmate uses to parse, validate,
+index, and transition managed documents. Command modules consume this shared
+model instead of reimplementing document rules locally.
 
 ---
 
@@ -18,533 +17,284 @@ never by manipulating files directly.
 
 ### DocType
 
-Enumerates all document types recognised by specmate.
-
-```
-DocType:
-  Prd
-  DesignDoc
-  DesignPatch
-  ExecPlan
-  TaskSpec
-  ProjectSpec       # specs/project.md
-  OrgSpec           # specs/org.md
-  Guideline         # docs/guidelines/*.md
+```text
+Prd
+DesignDoc
+DesignPatch
+ExecPlan
+TaskSpec
+ProjectSpec
+OrgSpec
+Guideline
 ```
 
 ### Status
 
-Each `DocType` has its own set of valid statuses. The status enum is
-parameterised by `DocType` — a `Status::Candidate` is only valid for
-`DesignDoc` and `DesignPatch`, not for `TaskSpec`.
-
-```
+```text
 Prd:          Draft | Approved | Obsolete
 DesignDoc:    Draft | Candidate | Implemented | Obsolete
 DesignPatch:  Draft | Candidate | Implemented | Obsolete | ObsoleteMerged
-ExecPlan:     Draft | Active | Completed | Abandoned
-TaskSpec:     Draft | Active | Completed | Cancelled
-ProjectSpec:  Active          (single status, no transitions)
-OrgSpec:      Active          (single status, no transitions)
-Guideline:    Active          (single status, no transitions)
+ExecPlan:     Draft | Candidate | Closed
+TaskSpec:     Draft | Candidate | Closed
+ProjectSpec:  Active
+OrgSpec:      Active
+Guideline:    Active   # implicit, not read from frontmatter
 ```
 
 ### DocId
 
-The canonical identifier for a document. For filename-addressed documents,
-the canonical ID is derived from the filename and must exactly match the
-frontmatter `id` field. For fixed-path documents, the canonical ID is derived
-from the path (`project`, `org`). Guidelines have no explicit ID field.
-
-```
-DocId:
-  Prd(u32)                          # prd-001
-  DesignDoc(u32)                    # design-001
-  DesignPatch(u32, u8)              # design-001-patch-01 → (1, 1)
-  ExecPlan(u32)                     # exec-001
-  TaskSpec(u32)                     # task-0001
-  ProjectSpec
-  OrgSpec
-  Guideline(String)                 # docs/guidelines/<slug>
+```text
+Prd(String)                          -> prd-<slug>
+DesignDoc(String)                    -> design-<slug>
+DesignPatch(parent, sequence, slug)  -> design-<parent>-patch-<nn>-<slug>
+ExecPlan(String)                     -> exec-<slug>
+TaskSpec(exec_slug, sequence)        -> exec-<slug>/task-<nn>
+ProjectSpec                          -> project
+OrgSpec                              -> org
+Guideline(String)                    -> relative guideline slug
 ```
 
-ID allocation is per `DocType`. Task Specs use four-digit IDs (max 9999),
-all others use three-digit IDs (max 999). IDs are globally incremented and
-never reused.
+Important Task Spec ID rules:
 
-### Document
-
-A parsed, fully-validated document.
-
-```
-Document:
-  id:        DocId
-  doc_type:  DocType
-  status:    Status           # Guideline status is implicit Active
-  title:     Option<String>
-  path:      PathBuf          # absolute path to the file
-  frontmatter: Frontmatter    # all parsed frontmatter fields
-  raw:       String           # original file content
-```
+- canonical id: `exec-<slug>/task-<nn>`
+- frontmatter `id`: `task-<nn>`
+- escaped single-token form: `exec-<slug>--task-<nn>`
 
 ---
 
-## 2. Frontmatter
+## 2. Frontmatter contract
 
-Frontmatter is the YAML block between the opening `---` and the first closing
-`---` in a `.md` file. It is the source of truth for human-authored metadata.
-For filename-addressed managed documents, the filename and frontmatter `id`
-must agree exactly.
+### 2.1 Required fields
 
-### Required fields by DocType
+PRD, Design Doc, Design Patch, Exec Plan, and Task Spec require:
 
-**PRD / DesignDoc / DesignPatch / ExecPlan / TaskSpec**
+- `id`
+- `title`
+- `status`
+- `created`
 
-| Field | Type | Constraint |
-|---|---|---|
-| `id` | string | must exactly match the filename-derived ID |
-| `title` | string | non-empty |
-| `status` | string | must be a valid status for this DocType |
+Exec Plans and Task Specs may also require:
 
-**ProjectSpec / OrgSpec**
+- `closed` when `status: closed`
 
-| Field | Type | Constraint |
-|---|---|---|
-| `id` | string | must be `project` or `org` respectively |
-| `status` | string | must be `active` |
+Fixed-path specs:
 
-**Guideline**
+- `docs/specs/project.md` must declare `id: project` and `status: active`
+- `docs/specs/org.md` must declare `id: org` and `status: active`
 
-| Field | Type | Constraint |
-|---|---|---|
-| `title` | string | non-empty |
+Guidelines:
 
-Guidelines do not carry `id` or `status` in frontmatter. They are always
-treated as `active` when loaded.
+- require `title`
+- must not declare `id`
+- must not declare `status`
 
-### Optional fields by DocType
+### 2.2 Type-specific fields
 
-**DesignDoc / DesignPatch**
+Design Patch:
 
-| Field | Type | Meaning |
-|---|---|---|
-| `module` | string | the codebase module this design covers |
-| `prd` | string | linked PRD id (e.g. `prd-001`) |
-| `parent` | string | patch only — required, parent design doc id |
-| `merged-into` | string | patch only — required when status is `obsolete:merged` |
-| `superseded-by` | string | required when status is `obsolete` via Flow B |
+- `parent` is required
+- `merged-into` is required when `status: obsolete:merged`
 
-**ExecPlan**
+Exec Plan:
 
-| Field | Type | Meaning |
-|---|---|---|
-| `design-doc` | string | optional, linked Design Doc id |
+- `design-docs` is required and must be non-empty
+- legacy singular `design-doc` must not be used together with `design-docs`
 
-**TaskSpec**
+Task Spec:
 
-| Field | Type | Meaning |
-|---|---|---|
-| `exec-plan` | string | optional, linked Exec Plan id |
-| `design-doc` | string | optional, linked Design Doc id for a standalone task |
-| `guidelines` | string[] | guideline files injected at run time |
-| `boundaries.allowed` | string[] | glob patterns — files agent may modify |
-| `boundaries.forbidden_patterns` | string[] | glob patterns — files agent must never touch |
-| `completion_criteria` | object[] | see below |
+- `exec-plan` is required
+- legacy `design-doc` is rejected in the current model
+- `guidelines` is optional
+- `boundaries` and `completion_criteria` are required when status is
+  `candidate`
 
-**completion_criteria item**
+Candidate Task Spec requirements:
 
-| Field | Type | Constraint |
-|---|---|---|
-| `id` | string | format `cc-NNN`, unique within this spec |
-| `scenario` | string | human-readable description, non-empty |
-| `test` | string | exact test function name, non-empty |
+- `boundaries.allowed` must contain at least one pattern
+- `boundaries.forbidden_patterns` must include:
+  `docs/prd/**`, `docs/design/**`, `docs/guidelines/**`,
+  `docs/specs/**`, and `docs/exec-plans/**`
+- `completion_criteria` must be non-empty
+- each completion criterion must include non-empty `id`, `scenario`, and
+  `test`
+- completion criterion ids use `cc-NNN`
+
+Date rules:
+
+- `created` and `closed` use `YYYY-MM-DD`
+- `closed` is only allowed on Exec Plans and Task Specs
+- `closed` must be absent unless status is `closed`
 
 ---
 
-## 3. Task Spec runtime contract
+## 3. Path classification and indexing
 
-Task Specs are verification documents, but a subset of their frontmatter is
-also executed by specmate at runtime. These fields are part of the document
-model and must be parsed consistently by `check`, `run`, and any future
-automation commands.
+The document model scans the repository and classifies paths into:
 
-### `exec-plan`
+- valid managed entries
+- invalid managed entries
+- ignored files
 
-Optional. Links the Task Spec to its parent Exec Plan.
-
-- Value must be a valid Exec Plan id such as `exec-001`
-- If present, it must point to an existing Exec Plan document
-- `specmate run` uses this link to resolve task dependencies before execution
-
-Tasks may omit `exec-plan` when they are intentionally standalone and are not
-part of a broader execution plan.
-
-### `design-doc`
-
-Optional. Links the Task Spec directly to a Design Doc when the task is
-standalone and does not belong to an Exec Plan.
-
-- Value must be a valid Design Doc id such as `design-001`
-- If present, it must point to an existing Design Doc document
-- It must not be used together with `exec-plan` on the same Task Spec
-
-Tasks may omit `design-doc` when they are intentionally standalone and do not
-need a recorded design upstream.
-
-### `guidelines`
-
-Optional. A list of guideline file paths relative to the repository root.
-
-- Every listed file must exist
-- Every listed file must resolve to a Guideline document
-- `specmate run` injects the referenced guideline files into coding and review
-  agent context verbatim
-
-### `boundaries`
-
-Required for Task Specs with status `active`.
-
-`allowed` is a list of repository-relative glob patterns describing the files
-the agent may modify.
-
-`forbidden_patterns` is an optional list of repository-relative glob patterns
-describing files the agent must never modify, even if they also match an
-`allowed` pattern.
-
-Rules:
-
-- `boundaries.allowed` must contain at least one pattern for an `active` Task Spec
-- if a file matches both `allowed` and `forbidden_patterns`, it is forbidden
-- `specs/**` must appear in `forbidden_patterns` for every `active` Task Spec
-
-### `completion_criteria`
-
-Required for Task Specs with status `active`. Must contain at least one item.
-
-Each item binds a human-readable scenario to an exact test function name.
-`specmate run` executes each `test` by exact name using the project's test
-runner contract defined in `specs/project.md`.
-
-Rules:
-
-- every item must include `id`, `scenario`, and `test`
-- `id` values must be unique within the spec and follow `cc-NNN`
-- `scenario` must be non-empty
-- `test` must be non-empty
-- a missing or undiscoverable test is a failure, not a skip
-
----
-
-## 4. Filename parsing
-
-For filename-addressed documents, document type and canonical ID are derived
-from the filename first, then validated against frontmatter `id`. This gives
-the file a stable self-declared identity even if it is copied elsewhere, while
-still making the repository filename authoritative for placement and indexing.
-
-**Parsing rules**
-
-```
-prd-{NNN}-{slug}.md           → DocType::Prd, id=NNN
-design-{NNN}-{slug}.md        → DocType::DesignDoc, id=NNN
-design-{NNN}-patch-{NN}-{slug}.md  → DocType::DesignPatch, id=(NNN,NN)
-exec-{NNN}-{slug}.md          → DocType::ExecPlan, id=NNN
-task-{NNNN}-{slug}.md         → DocType::TaskSpec, id=NNNN
-project.md                    → DocType::ProjectSpec
-org.md                        → DocType::OrgSpec
-docs/guidelines/{slug}.md     → DocType::Guideline, id=slug
-```
-
-Files outside managed directories that do not match any pattern are ignored by
-specmate.
-
-Files inside managed directories are not ignored. If a file appears in a
-managed directory but does not match the required naming pattern for that
-location, specmate must surface it as an invalid managed document so `check`
-can report a concrete violation.
-
----
-
-## 5. Directory resolver
-
-Given a `DocType` and `Status`, the directory resolver returns the expected
-path for the file. This is used by `specmate move` to determine where to
-place a file after a status transition.
-
-```
-Prd + Draft         → docs/prd/draft/
-Prd + Approved      → docs/prd/approved/
-Prd + Obsolete      → docs/prd/obsolete/
-
-DesignDoc + Draft        → docs/design-docs/draft/
-DesignDoc + Candidate    → docs/design-docs/candidate/
-DesignDoc + Implemented  → docs/design-docs/implemented/
-DesignDoc + Obsolete     → docs/design-docs/obsolete/
-
-DesignPatch + Draft           → docs/design-docs/draft/
-DesignPatch + Candidate       → docs/design-docs/candidate/
-DesignPatch + Implemented     → docs/design-docs/implemented/
-DesignPatch + Obsolete        → docs/design-docs/obsolete/
-DesignPatch + ObsoleteMerged → docs/design-docs/obsolete/
-
-ExecPlan + Draft       → docs/exec-plans/draft/
-ExecPlan + Active      → docs/exec-plans/active/
-ExecPlan + Completed   → docs/exec-plans/archived/
-ExecPlan + Abandoned   → docs/exec-plans/archived/
-
-TaskSpec + Draft    → specs/active/
-TaskSpec + Active   → specs/active/
-TaskSpec + Completed  → specs/archived/
-TaskSpec + Cancelled  → specs/archived/
-
-Guideline           → docs/guidelines/   (no subdirectory)
-ProjectSpec         → specs/
-OrgSpec             → specs/
-```
-
----
-
-## 6. Status transition rules
-
-The transition table defines which status changes are legal. Illegal
-transitions are rejected with an error.
-
-**PRD**
-
-| From | To | Notes |
-|---|---|---|
-| `draft` | `approved` | |
-| `approved` | `obsolete` | |
-| `draft` | `obsolete` | feature cancelled before approval |
-
-**Design Doc**
-
-| From | To | Notes |
-|---|---|---|
-| `draft` | `candidate` | |
-| `candidate` | `implemented` | all Exec Plans referencing this doc must be `completed` |
-| `candidate` | `obsolete` | design abandoned or split before implementation; keep the document for ID continuity |
-| `implemented` | `obsolete` | module removed (Flow C) or superseded (Flow B) |
-
-**Design Patch**
-
-| From | To | Notes |
-|---|---|---|
-| `draft` | `candidate` | |
-| `draft` | `obsolete` | patch abandoned before review or implementation; keep the document for ID continuity |
-| `candidate` | `implemented` | |
-| `candidate` | `obsolete` | patch abandoned after review; keep the document for ID continuity |
-| `implemented` | `obsolete:merged` | requires `merged-into` in frontmatter |
-
-**Exec Plan**
-
-| From | To | Notes |
-|---|---|---|
-| `draft` | `active` | |
-| `active` | `completed` | |
-| `active` | `abandoned` | must record reason |
-
-**Task Spec**
-
-| From | To | Notes |
-|---|---|---|
-| `draft` | `active` | human approval gate |
-| `active` | `completed` | all completion criteria must pass |
-| `active` | `cancelled` | must record reason |
-| `draft` | `cancelled` | |
-
----
-
-## 7. Transition evaluation model
-
-Commands that change managed-document state must evaluate a requested move in
-three distinct steps:
+Managed path rules:
 
 ```text
-validate_transition(index, document, to_status)
-    checks whether the requested status edge is legal for this DocType
-    checks any transition-time gates tied to that edge
-
-preview_transition(index, document, to_status)
-    returns a predicted repository index with:
-      - the moved document status updated
-      - the moved document path resolved through the directory resolver
-      - all other documents unchanged
-
-validate_preview(preview_index)
-    runs repository-level validation on the predicted post-transition state
+docs/specs/project.md
+docs/specs/org.md
+docs/guidelines/<slug>.md
+docs/prd/<status>/prd-<slug>.md
+docs/design/<status>/design-<slug>.md
+docs/design/<status>/design-<parent>-patch-<nn>-<slug>.md
+docs/exec-plans/exec-<slug>/plan.md
+docs/exec-plans/exec-<slug>/task-<nn>-<slug>.md
 ```
 
-This split keeps two rule classes separate:
+Files ending in `-report.md` under an Exec Plan directory are ignored by the
+document index. They are specmate-managed workflow artifacts, not managed
+documents.
 
-- **steady-state validity** answers whether the repository is valid now
-- **transition-time gates** answer whether one specific status move may happen now
+`README.md` files inside managed directories are also ignored by the model.
 
-At minimum, the shared document model must enforce these transition-time gates:
+### Expected directories
 
-- `Prd -> Obsolete` is blocked while any live Design Doc still references that PRD
-- `DesignDoc -> Implemented` is blocked while any referencing Exec Plan is not `completed`
-- `DesignDoc -> Obsolete` is blocked while any live Exec Plan still references that Design Doc
-- `DesignPatch -> ObsoleteMerged` requires a valid `merged-into` Design Doc reference
-- `ExecPlan -> Completed` is blocked while any referencing Task Spec is not `completed`
-- `ExecPlan -> Abandoned` is blocked while any live Task Spec still references that Exec Plan
+```text
+Prd + Draft        -> docs/prd/draft
+Prd + Approved     -> docs/prd/approved
+Prd + Obsolete     -> docs/prd/obsolete
 
-Commands such as `specmate move` and `specmate run` must fail before writing if:
+DesignDoc/Patch + Draft         -> docs/design/draft
+DesignDoc/Patch + Candidate     -> docs/design/candidate
+DesignDoc/Patch + Implemented   -> docs/design/implemented
+DesignDoc/Patch + Obsolete*     -> docs/design/obsolete
 
-- the current repository is invalid, or
-- the predicted post-transition repository would be invalid
+ProjectSpec + Active -> docs/specs
+OrgSpec + Active     -> docs/specs
+Guideline + Active   -> docs/guidelines
+```
 
-The document model never performs implicit cascading transitions on related
-documents. It only reports whether the requested move is legal.
+Exec Plans and Task Specs do not use status-based directories:
+
+- Exec Plan expected directory: `docs/exec-plans/<exec-id>`
+- Task Spec expected directory: `docs/exec-plans/exec-<exec-slug>`
 
 ---
 
-## 8. Validation rules
+## 4. Repository-level validation
 
-The document model enforces these rules on every document it loads.
-Violations produce structured errors that include the file path, the
-field that failed, and the expected value.
+The shared validator enforces cross-document rules that depend on the loaded
+index.
 
-| Rule | Applies to | Check |
-|---|---|---|
-| Title non-empty | docs that declare title | `title` field exists and is not blank where that DocType requires one |
-| ID present | non-Guideline docs | `id` field exists in frontmatter |
-| ID matches path | non-Guideline docs | frontmatter `id` matches the canonical ID derived from filename or fixed path |
-| Valid status | docs with explicit status | `status` value is in the allowed set for this DocType |
-| Guideline implicit active | Guideline | no `status` field is required; loaded status is `active` |
-| Directory matches status | all managed docs | file location matches directory resolver output |
-| merged-into present | DesignPatch with `obsolete:merged` | `merged-into` field exists and points to an existing doc |
-| parent present | DesignPatch | `parent` field exists and points to an existing Design Doc |
-| design-doc valid when present | ExecPlan, TaskSpec | if `design-doc` exists, it points to an existing Design Doc |
-| superseded-by present | DesignDoc with `obsolete` via Flow B | `superseded-by` field exists and points to an existing doc |
-| No stale live refs | live Design Docs, Exec Plans, Task Specs | live references (`prd`, `design-doc`, `exec-plan`) must not point to obsolete or abandoned parents; historical descendants may retain those links if the target still exists and has the correct type |
-| One task upstream path | TaskSpec | a Task Spec must not declare both `exec-plan` and `design-doc` |
-| Unique IDs | per DocType | no two documents of the same type share an ID |
-| CC ids unique | TaskSpec | no two completion criteria share an `id` within a spec |
-| Guideline files exist | TaskSpec | each `guidelines` path resolves to an existing Guideline |
-| allowed non-empty | TaskSpec with `active` status | `boundaries.allowed` has at least one entry |
-| specs locked | TaskSpec with `active` status | `boundaries.forbidden_patterns` includes `specs/**` |
-| criteria non-empty | TaskSpec with `active` status | `completion_criteria` has at least one entry |
+### 4.1 Reference validity
 
----
+- A live Design Doc must not reference an obsolete PRD.
+- A live Task Spec must not reference a closed Exec Plan.
+- Historical descendants may retain references to terminal parents when the
+  current implementation treats that relationship as valid history.
+- Guideline paths listed in `guidelines` must resolve to actual Guidelines.
 
-## 9. Association summaries
+### 4.2 Exec Plan rules
 
-The shared document model must also expose read-only association summaries for
-higher-level commands that want to report repository facts without redefining
-relationship logic.
+- `design-docs` must contain at least one reference.
+- `design-docs` entries must be unique.
+- Every `design-docs` entry must resolve to an existing Design Doc or
+  Design Patch.
+- Referenced Design Docs and Design Patches must be in `candidate` or
+  `implemented`.
+- If a Design Patch appears in `design-docs`, its parent Design Doc must also
+  appear in `design-docs`.
 
-Supported direct associations:
+### 4.3 Task Spec rules
 
-- PRD ↔ Design Doc via `DesignDoc.prd`
-- Design Doc ↔ Design Patch via `DesignPatch.parent`
-- Design Doc ↔ Exec Plan via `ExecPlan.design-doc`
-- Design Doc ↔ Task Spec via `TaskSpec.design-doc`
-- Exec Plan ↔ Task Spec via `TaskSpec.exec-plan`
-
-For each association set, the model must support aggregate predicates that are
-useful to commands:
-
-- all related documents are in a caller-specified status
-- all related documents are terminal for their own document type
-- no related documents exist
-
-These summaries are facts only. They do not imply or trigger automatic status
-changes.
+- Every Task Spec must belong to an Exec Plan.
+- Candidate Task Specs must satisfy the runtime contract described above.
 
 ---
 
-## 10. ID allocation
+## 5. Transition rules
 
-When `specmate new` creates a document, it allocates the next available ID
-for that DocType by scanning all existing documents across all subdirectories.
+`validate_transition` implements the legal status graph.
 
-```
-next_id(DocType) → u32:
-  scan all files matching the DocType pattern in all known subdirectories
-  parse the ID from each filename
-  return max(found_ids) + 1, or 1 if no documents exist
-```
+### PRD
 
-IDs are never reused. A cancelled `task-0003` means `task-0004` is the next
-ID, not a new `task-0003`.
+- `draft -> approved`
+- `draft -> obsolete`
+- `approved -> obsolete`
 
-For `DesignPatch`, the patch sequence number is scoped to the parent:
+### Design Doc
 
-```
-next_patch_number(parent_id) → u8:
-  scan all patch files for this parent
-  return max(found_patch_numbers) + 1, or 1 if no patches exist
-```
+- `draft -> candidate`
+- `candidate -> implemented`
+- `candidate -> obsolete`
+- `implemented -> obsolete`
 
----
+### Design Patch
 
-## 11. Implementation responsibilities
+- `draft -> candidate`
+- `draft -> obsolete`
+- `candidate -> implemented`
+- `candidate -> obsolete`
+- `implemented -> obsolete:merged`
 
-The document model is a shared subsystem. `specmate check`, `specmate move`,
-`specmate new`, and `specmate run` must all consume the same document-model
-logic rather than reimplementing parsing or validation independently.
+### Exec Plan
 
-At minimum, the implementation must provide these capabilities:
+- `draft -> candidate`
+- `draft -> closed`
+- `candidate -> draft`
+- `candidate -> closed`
 
-- identify whether a path is a managed document path, and if so which `DocType`
-  it belongs to
-- derive the canonical document ID from filename or fixed path, then validate
-  it against frontmatter where required
-- parse frontmatter into a typed in-memory representation
-- load a document into a validated `Document` value
-- resolve the expected directory for a document from its `(DocType, Status)`
-- validate whether a requested status transition is legal
-- build a predicted repository index for a requested status transition
-- validate the predicted repository index after a requested status transition
-- allocate the next available document ID for a given `DocType`
-- allocate the next patch sequence number for a given parent Design Doc
-- expose direct-association summaries and aggregate predicates
-- validate Task Spec runtime fields used by execution-time commands
+### Task Spec
 
-The implementation must also expose a repository-level document index that can
-represent:
+- `draft -> candidate`
+- `draft -> closed`
+- `candidate -> draft`
+- `candidate -> closed`
 
-- valid managed documents
-- invalid entries found inside managed directories
-- ignored files outside the managed document system
-
-Invalid entries inside managed directories must remain visible to validation so
-`specmate check` can report actionable errors. They must not be silently
-dropped during indexing.
-
-Operations that depend on document-model correctness must not proceed on top of
-an already-invalid repository state. Commands that allocate IDs, create managed
-documents, move managed documents, or transition managed document status must
-first build and validate the repository document index. If the repository
-contains invalid managed entries or repository-level validation violations,
-those operations must fail and report the violations instead of inferring new
-document state from inconsistent input.
+Project Specs, Org Specs, and Guidelines have no legal transitions.
 
 ---
 
-## 12. Verification requirements
+## 6. Transition-time gates
 
-An implementation of this design is not considered complete unless the
-document-model behaviour is verified through automated tests.
+Legal status edges may still be blocked by repository facts.
 
-At minimum, tests must cover:
+- `Prd -> Obsolete` is blocked while any live Design Doc still references it.
+- `DesignDoc -> Implemented` is blocked while any linked Exec Plan is not
+  `closed`.
+- `DesignDoc -> Obsolete` is blocked while any live linked Exec Plan still
+  references it.
+- `DesignPatch -> ObsoleteMerged` requires `merged-into` to resolve to an
+  existing Design Doc.
+- `ExecPlan -> Closed` is blocked while any linked Task Spec is not `closed`.
 
-- filename parsing for every managed document type
-- canonical ID matching between filename or fixed path and frontmatter `id`
-- Guideline loading without `id` or `status`, with implicit `active` status
-- rejection of malformed managed filenames inside managed directories
-- ignoring of unrelated markdown files outside managed directories
-- frontmatter validation for required and conditionally required fields
-- directory resolution for every valid `(DocType, Status)` combination
-- status transition validation for both legal and illegal transitions
-- predicted-state validation for post-transition repository checks
-- Task Spec runtime-field validation, including `guidelines`, `boundaries`,
-  and `completion_criteria`
-- association-summary queries for each supported direct-association type
-- ID allocation across mixed active, archived, and obsolete documents
-- patch sequence allocation scoped to a parent Design Doc
+The document model treats `draft` and `candidate` as live for Exec Plans and
+Task Specs. `closed` is terminal.
 
-Command-level tests for `check`, `move`, `new`, and `run` should verify that
-those commands reuse the document model rather than implementing divergent
-parsing or validation rules.
+---
+
+## 7. Preview and mutation support
+
+The shared model exposes preview helpers used by write commands:
+
+- `preview_transition` predicts the post-move repository state
+- `validate_preview` verifies that the predicted state would still be valid
+- `expected_directory` resolves status-based destination directories
+
+This keeps command modules small:
+
+- `specmate move` uses the shared transition, preview, and path rules
+- `specmate check` uses the shared index and validation logic
+- `specmate status` uses the shared index and association summaries
+
+---
+
+## 8. Association summaries
+
+The model provides direct downstream association summaries for:
+
+- PRD -> Design Docs
+- Design Doc -> Design Patches
+- Design Doc -> Exec Plans
+- Design Doc -> direct Task Specs
+- Exec Plan -> Task Specs
+
+These summaries are intentionally direct. Command-layer views may add derived
+presentation, but they should not redefine the underlying relationship rules.

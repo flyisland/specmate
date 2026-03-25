@@ -55,10 +55,10 @@ versions. When adding new CLI output, always write in English only.
 specmate uses git for task isolation and traceability. All git operations
 follow these principles:
 
-**Branch naming**: `specmate/task-{id}-{slug}`
+**Branch naming**: `specmate/{exec-id}--task-{nn}-{slug}`
 
 ```
-specmate/task-0001-implement-init-command
+specmate/exec-implement-init-command--task-01-implement-init-command
 ```
 
 Branches are created from the current HEAD of the default branch.
@@ -67,9 +67,9 @@ specmate never deletes branches — cleanup is left to the team's workflow.
 **Commit message format**:
 
 ```
-task-0001: <title>
+exec-implement-init-command/task-01: <title>
 
-Completes task-0001-implement-init-command.
+Completes exec-implement-init-command/task-01.
 All completion criteria passed.
 ```
 

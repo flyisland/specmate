@@ -10,48 +10,13 @@ guidelines:
 
 # Move Command
 
-This document defines `specmate move` — the command that performs an allowed
-status transition on a managed document and updates its file location to match
-the target status.
-
-`design-003` defines the shared document model that this command consumes:
-directory resolution, transition validation, post-transition preview
-validation, and association-summary queries.
-
-This document owns the command surface and write-path behaviour for applying
-those shared rules safely.
+This document defines the implemented behavior of `specmate move`. The command
+performs one legal status transition on one managed document and applies the
+required filesystem update, if any.
 
 ---
 
-## 1. Design principles
-
-**One command owns status transitions.** Status-managed documents must change
-status through `specmate move`, not by editing frontmatter or moving files by
-hand.
-
-**Document-model rules stay centralised.** `specmate move` must call the
-document-model loader, directory resolver, transition validator, and
-preview / association-summary helpers from `design-003`. It must not
-reimplement status legality or path mapping.
-
-**Status update and relocation are one operation.** A successful move updates
-frontmatter and file location together. The command must never leave a file
-with the new status in the old directory or the old status in the new
-directory.
-
-**Fail before writing.** If the repository document state is invalid, the
-target transition is illegal, or the destination path is not writable,
-`specmate move` stops before changing anything.
-
-**The command is mechanical, not semantic.** `specmate move` enforces
-document-model invariants and filesystem consistency. It does not run tests,
-invoke agents, or infer whether a human process requirement has been met.
-Higher-level commands such as `specmate run` remain responsible for proving
-that a document is ready to move to a semantically stronger status.
-
----
-
-## 2. Command surface
+## 1. Command surface
 
 ```bash
 specmate move <doc-id> <to-status> [--dry-run]
@@ -60,30 +25,12 @@ specmate move <doc-id> <to-status> [--dry-run]
 Examples:
 
 ```bash
-specmate move exec-001 active
-specmate move task-0007 completed
-specmate move design-001 implemented --dry-run
+specmate move exec-auth-rollout candidate
+specmate move exec-auth-rollout/task-01 closed
+specmate move design-auth-system implemented --dry-run
 ```
 
-Arguments:
-
-- `<doc-id>`: canonical managed document ID such as `prd-001`, `design-004`,
-  `design-004-patch-01`, `exec-001`, or `task-0007`
-- `<to-status>`: target status string valid for the resolved document type
-
-Options:
-
-- `--dry-run`: show the planned frontmatter update and file relocation without
-  writing files
-
-`specmate move` must provide `--help` with at least one example in the output.
-
----
-
-## 3. Supported document types
-
-`specmate move` supports the managed document types that have explicit
-lifecycles:
+Supported lifecycle-managed document types:
 
 - PRD
 - Design Doc
@@ -91,226 +38,157 @@ lifecycles:
 - Exec Plan
 - Task Spec
 
-`specmate move` rejects these inputs with an error:
+Unsupported targets:
 
 - `project`
 - `org`
-- Guideline IDs such as `specmate-principles`
-
-Reason: those document types are always active and have no legal status
-transitions.
+- guideline ids
 
 ---
 
-## 4. Preconditions
+## 2. Design principles
 
-Before planning or applying a move, `specmate move` must:
-
-1. Locate the repository root and build the full document index.
-2. Validate current repository steady-state compliance through the shared
-   document model.
-3. Resolve `<doc-id>` to exactly one valid managed document.
-4. Parse `<to-status>` in the status vocabulary for that document type.
-5. Validate the requested transition through the shared transition validator,
-   including any transition-time gates defined by the document model.
-6. Build the predicted post-move repository state and validate it through the
-   shared document model.
-7. Resolve the destination directory using the shared directory resolver.
-8. Check whether the destination path would collide with an existing file.
-
-If any of these checks fails, the command exits with code `1` and writes no
-files.
-
-Repository validation is mandatory even when the requested document itself is
-valid. Commands that mutate managed document state must not operate on top of
-an already-invalid document system.
+- One command owns status transitions. Manual path edits are not the supported
+  write flow.
+- The shared document model owns legality. `move` reuses shared transition,
+  preview, and path-resolution helpers.
+- Fail before writing. If preflight or preview validation fails, nothing is
+  modified.
+- Update and relocation are one operation. Successful cross-directory moves
+  rewrite frontmatter and filesystem state together.
 
 ---
 
-## 5. Transition semantics
+## 3. Preconditions
 
-`specmate move` follows the transition table and association-aware transition
-rules defined by `design-003`.
+Before planning a move, the command must:
 
-Command-specific rules:
+1. locate the repository root
+2. build a compliant document index
+3. resolve the requested canonical document id
+4. parse the requested target status for that document type
+5. reject same-status requests
+6. validate the requested transition through the shared model
+7. build a post-move preview
+8. validate the post-move preview
+9. verify the destination directory exists
+10. reject destination path collisions
 
-- Moving to the same status is a no-op request and must fail clearly rather
-  than silently succeeding.
-- If the new status maps to the same directory as the old status, the command
-  updates frontmatter in place without changing the filename.
-- If the new status maps to a different directory, the command updates
-  frontmatter and relocates the file to the destination directory while
-  preserving the filename.
-- `specmate move` never changes a document ID or filename slug.
+If any of these checks fails, the command exits with code `1`.
 
-`specmate move` does not perform cascading status changes. It applies the
-requested transition to exactly one document.
+---
 
-Conditionally required fields remain enforced by the document model after the
-status change. For example:
+## 4. Implemented transition semantics
 
-- `design patch -> obsolete:merged` requires `merged-into`
-- `design doc -> obsolete` via supersession requires `superseded-by`
+`specmate move` follows the shared transition graph exactly.
 
-If the existing document content would be invalid in the target status,
-`specmate move` fails before writing.
+Examples of legal transitions:
 
-Semantic obligations described by document meaning are not re-proven here.
-Examples:
+- `design-auth-system`: `candidate -> implemented`
+- `design-auth-system-patch-01-fix-links`: `implemented -> obsolete:merged`
+- `exec-auth-rollout`: `draft -> candidate`
+- `exec-auth-rollout/task-01`: `candidate -> closed`
+- `exec-auth-rollout/task-01`: `candidate -> draft`
 
-- `task active -> completed` does not run completion-criteria tests
-- `design candidate -> implemented` does not complete Exec Plans on its own
-- a later bug-fix Task Spec against an already `implemented` Design Doc is not
-  itself a repository violation
+Examples of blocked transitions:
 
-Those obligations must be satisfied by the caller before invoking the command.
+- any same-status request
+- `design -> implemented` while linked Exec Plans are not `closed`
+- `exec -> closed` while linked Task Specs are not `closed`
+- `patch -> obsolete:merged` without a valid `merged-into`
 
-When a move succeeds, the command may query the shared document model for
-association summaries and render non-blocking informational hints. These hints
-must never change any other document automatically and must never affect the
-exit code.
+`move` does not run semantic proofs such as completion-criteria tests. It only
+enforces mechanical legality.
 
-Hint rules:
+---
 
-- hints report repository facts only; they do not recommend or execute another
-  command
-- hints list the exact related document IDs returned by the shared association
-  summary
-- hint eligibility is determined by the shared document model; this command only
-  chooses how to render the returned facts
+## 5. Path behavior
 
-Examples:
+For PRDs and Design Docs/Patches, status may change the required directory.
 
-- after `task -> completed`, the model may report that all Task Specs linked to
-  the same Exec Plan are now `completed`
-- after `exec -> completed`, the model may report that all Exec Plans linked to
-  the same Design Doc are now `completed`
-- after other supported moves, the model may report other association facts
-  defined by the shared document model
+Example:
 
-Hints are advisory only. The user or a higher-level command remains
-responsible for deciding whether any manual follow-up is semantically
-appropriate.
+- `docs/design/candidate/design-auth-system.md`
+- `docs/design/implemented/design-auth-system.md`
+
+For Exec Plans and Task Specs, status does not change the path:
+
+- Exec Plan remains at `docs/exec-plans/exec-<slug>/plan.md`
+- Task Spec remains at `docs/exec-plans/exec-<slug>/task-<nn>-<slug>.md`
+
+Closing an Exec Plan or Task Spec therefore updates frontmatter in place and
+adds `closed: YYYY-MM-DD`, but does not move the file.
 
 ---
 
 ## 6. Write model
 
-The command produces an updated document body by rewriting only the frontmatter
-fields required by the status change. All non-frontmatter content and field
-ordering should be preserved whenever practical.
+The command rewrites frontmatter in memory first, then writes through a
+temporary sibling file and atomically renames it into place.
 
-Write strategy:
+Behavior:
 
-1. Compute the updated document content in memory.
-2. Write it to a temporary sibling path in the destination directory.
-3. Atomically rename the temporary file into the final destination path.
-4. Remove the original path if the destination differs from the source path.
+- `status:` is updated to the target status
+- `closed:` is inserted or refreshed when moving to `closed`
+- `closed:` is removed when moving away from `closed`
+- body content outside frontmatter is preserved
 
-If the source and destination path are the same, the command writes through a
-temporary sibling file and atomically replaces the original file.
-
-If any filesystem step fails, the command exits with code `1` and must not
-report success. The implementation should prefer leaving the original file
-unchanged over risking a half-applied transition.
-
-`specmate move` never overwrites an existing user-owned file or another managed
-document. Destination collisions are hard errors.
+The command never overwrites an existing destination file.
 
 ---
 
 ## 7. Output
 
-### Success output
+### Applied output
 
-Applied moves print ownership-tagged lines:
+Successful writes print ownership-tagged lines:
 
 ```text
-  [user] UPDATE    specs/active/task-0007-add-status-view.md  (status: active -> completed)
-  [user] MOVE      specs/active/task-0007-add-status-view.md -> specs/archived/task-0007-add-status-view.md
+  [user] UPDATE    docs/exec-plans/exec-auth-rollout/task-01-implement-login.md  (status: candidate -> closed)
 ```
 
-When the directory does not change, only the `UPDATE` line is printed.
-
-Optional advisory hints may follow a successful move:
+Cross-directory transitions print an additional move line:
 
 ```text
-  [info] exec-001 related tasks are all completed: task-0005, task-0006, task-0007
-  [info] design-001 related exec plans are all completed: exec-001, exec-002
+  [user] UPDATE    docs/design/candidate/design-auth-system.md  (status: candidate -> implemented)
+  [user] MOVE      docs/design/candidate/design-auth-system.md -> docs/design/implemented/design-auth-system.md
 ```
 
 ### Dry-run output
 
-Dry-run output begins with:
+Dry-run mode prints the same plan prefixed by:
 
 ```text
 Planned operations (no files will be written):
 ```
 
-And ends with:
+and ends with:
 
 ```text
 Run without --dry-run to apply.
 ```
 
-Example:
+### Failure output
+
+Failures render in CLI-conventions form:
 
 ```text
-Planned operations (no files will be written):
-  [user] UPDATE    docs/exec-plans/draft/exec-001-implement-check-engine.md  (status: draft -> active)
-  [user] MOVE      docs/exec-plans/draft/exec-001-implement-check-engine.md -> docs/exec-plans/active/exec-001-implement-check-engine.md
-
-Run without --dry-run to apply.
-```
-
-### Error output
-
-Errors must identify:
-
-1. the requested document
-2. the violated rule
-3. the concrete next action
-
-Example:
-
-```text
-[fail] task-0007 cannot move to completed
-       requested transition active -> completed is legal, but the destination path already exists:
-       specs/archived/task-0007-add-status-view.md
-       -> Remove or rename the conflicting file before retrying.
+[fail] move
+       docs/design/candidate/design-auth-system.md
+       cannot transition to implemented while exec-auth-rollout is candidate
+       -> Fix the blocking transition rule or choose a different target status.
 ```
 
 ---
 
 ## 8. Relationship to other commands
 
-- `specmate check status` diagnoses directory/status mismatches but never
-  repairs them.
-- `specmate run` may call `specmate move <task-id> completed` during finalise
-  after its own semantic gates pass.
-- `specmate new` creates managed documents but never performs later status
-  transitions.
+- `specmate check status` diagnoses directory mismatches but does not repair
+  them.
+- `specmate check refs` diagnoses stale references but does not transition
+  document state.
+- Future workflow commands such as `specmate run` may call `specmate move
+  <task-id> closed` after their own semantic gates pass.
 
-This keeps creation, validation, and transition responsibilities separate.
-
----
-
-## 9. Verification requirements
-
-An implementation of this command is not complete unless automated tests cover
-at least:
-
-- moving each supported document type across a legal cross-directory transition
-- moving across a legal same-directory transition
-- rejection of an illegal transition
-- rejection of same-status requests
-- rejection when the repository contains invalid managed documents
-- rejection when a transition-time gate from the shared document model blocks
-  the move
-- rejection for `project`, `org`, and Guideline targets
-- rejection when the destination path already exists
-- dry-run output with no filesystem changes
-- informational output that correctly renders association summaries returned by
-  the shared document model
-- preservation of body content outside the rewritten frontmatter
-- exact CLI output and exit codes for success and failure
+This is the current implementation contract. The command does not currently
+emit advisory relationship hints after success.
